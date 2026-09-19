@@ -236,6 +236,11 @@ jobs:
           test -f external/Madeira/app/Madeira/aarch64-windows/libwow64fex.dll
           test -f external/Madeira/app/Madeira/aarch64-windows/xtajit.dll
 
+          # Madeira intentionally does not track Microsoft's x86-64 VC runtime.
+          # This PE32 test forces the ARM64 WoW64 path, so an empty resource
+          # directory satisfies the Xcode project without redistributing it.
+          mkdir -p external/Madeira/app/Madeira/x86_64-vcruntime
+
       - name: Build unsigned device app
         run: |
           xcodebuild -version
