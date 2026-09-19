@@ -289,6 +289,55 @@ jobs:
           assert "IosCbEntryLog" in guarded
           PY
 
+      - name: Guard Windows-only CASPAL diagnostics in native iOS FEX
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("external/Madeira/FEX/FEXCore/Source/Utils/ArchHelpers/Arm64.cpp")
+          s = p.read_text()
+          old = """  MEMORY_BASIC_INFORMATION mbi {};
+  const char* type = "?";
+  if (VirtualQuery(reinterpret_cast<LPCVOID>(GPRs[AddressReg]), &mbi, sizeof(mbi))) {
+    type = mbi.Type == MEM_IMAGE ? "MEM_IMAGE" : mbi.Type == MEM_MAPPED ? "MEM_MAPPED" : "MEM_PRIVATE";
+  }
+  LogMan::Msg::EFmt("[caspal128] MISALIGNED-UNSUPPORTED Size={} addrReg=x{} addr={:#x} misalign={} "
+                    "crosses16B={} | region base={} size={:#x} prot={:#x} type={} state={:#x}",
+                    Size, AddressReg, GPRs[AddressReg], GPRs[AddressReg] & 15,
+                    (GPRs[AddressReg] & 15) ? "yes" : "no", mbi.BaseAddress, mbi.RegionSize,
+                    mbi.Protect, type, mbi.State);
+"""
+          new = """#if defined(_WIN32)
+  MEMORY_BASIC_INFORMATION mbi {};
+  const char* type = "?";
+  if (VirtualQuery(reinterpret_cast<LPCVOID>(GPRs[AddressReg]), &mbi, sizeof(mbi))) {
+    type = mbi.Type == MEM_IMAGE ? "MEM_IMAGE" : mbi.Type == MEM_MAPPED ? "MEM_MAPPED" : "MEM_PRIVATE";
+  }
+  LogMan::Msg::EFmt("[caspal128] MISALIGNED-UNSUPPORTED Size={} addrReg=x{} addr={:#x} misalign={} "
+                    "crosses16B={} | region base={} size={:#x} prot={:#x} type={} state={:#x}",
+                    Size, AddressReg, GPRs[AddressReg], GPRs[AddressReg] & 15,
+                    (GPRs[AddressReg] & 15) ? "yes" : "no", mbi.BaseAddress, mbi.RegionSize,
+                    mbi.Protect, type, mbi.State);
+#else
+  LogMan::Msg::EFmt("[caspal128] MISALIGNED-UNSUPPORTED Size={} addrReg=x{} addr={:#x} misalign={} "
+                    "crosses16B={} | region metadata unavailable on native iOS",
+                    Size, AddressReg, GPRs[AddressReg], GPRs[AddressReg] & 15,
+                    (GPRs[AddressReg] & 15) ? "yes" : "no");
+#endif
+"""
+          if old not in s:
+              raise SystemExit("Unexpected CASPAL diagnostic block; refusing blind patch")
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+          python3 - <<'PY'
+          from pathlib import Path
+          s = Path("external/Madeira/FEX/FEXCore/Source/Utils/ArchHelpers/Arm64.cpp").read_text()
+          assert "#if defined(_WIN32)" in s
+          assert "region metadata unavailable on native iOS" in s
+          assert s.count("MEMORY_BASIC_INFORMATION mbi {};") == 1
+          PY
+
       - name: Build FEX iOS static libraries and generated headers
         run: |
           cmake --version
