@@ -15,17 +15,24 @@ test -f "$WINE_SRC/configure"
 test -f "$NTDLL_DIR/build.sh"
 test -f "$GNUTLS_BUILD/build.sh"
 
-echo "=== Ensuring modern Bison for Wine/widl ==="
-BISON_MAJOR="$(bison --version 2>/dev/null | head -1 | sed -E 's/.* ([0-9]+)\..*/\1/' || true)"
-if [ -z "$BISON_MAJOR" ] || [ "$BISON_MAJOR" -lt 3 ]; then
-  if ! brew list bison >/dev/null 2>&1; then
-    brew install bison
+NEED_WINE_GEN=false
+for hdr in config.h dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
+  test -f "$WINE_BUILD/include/$hdr" || NEED_WINE_GEN=true
+done
+
+if [ "$NEED_WINE_GEN" = true ]; then
+  echo "=== Ensuring modern Bison for Wine/widl ==="
+  BISON_MAJOR="$(bison --version 2>/dev/null | head -1 | sed -E 's/.* ([0-9]+)\..*/\1/' || true)"
+  if [ -z "$BISON_MAJOR" ] || [ "$BISON_MAJOR" -lt 3 ]; then
+    if ! brew list bison >/dev/null 2>&1; then
+      brew install bison
+    fi
+    export PATH="$(brew --prefix bison)/bin:$PATH"
   fi
-  export PATH="$(brew --prefix bison)/bin:$PATH"
+  bison --version | head -1
+  BISON_MAJOR="$(bison --version | head -1 | sed -E 's/.* ([0-9]+)\..*/\1/')"
+  test "$BISON_MAJOR" -ge 3
 fi
-bison --version | head -1
-BISON_MAJOR="$(bison --version | head -1 | sed -E 's/.* ([0-9]+)\..*/\1/')"
-test "$BISON_MAJOR" -ge 3
 
 echo "=== Ensuring pinned llvm-mingw PE toolchain ==="
 if [ ! -x "$LLVM_MINGW_DIR/bin/aarch64-w64-mingw32-clang" ]; then
@@ -40,30 +47,35 @@ fi
 test -x "$LLVM_MINGW_DIR/bin/aarch64-w64-mingw32-clang"
 export PATH="$LLVM_MINGW_DIR/bin:$PATH"
 
-echo "=== Preparing Wine generated host tree ==="
-mkdir -p "$WINE_BUILD"
-if [ ! -f "$WINE_BUILD/include/config.h" ]; then
+if [ "$NEED_WINE_GEN" = true ]; then
+  echo "=== Preparing Wine generated host tree ==="
+  mkdir -p "$WINE_BUILD"
+  if [ ! -f "$WINE_BUILD/include/config.h" ]; then
+    (
+      cd "$WINE_BUILD"
+      ../configure
+    )
+  fi
+  test -f "$WINE_BUILD/include/config.h"
+
+  echo "=== Preparing Direct2D + DirectWrite generated headers ==="
   (
     cd "$WINE_BUILD"
-    ../configure
+    make -j2 \
+      include/dcommon.h \
+      include/d2d1.h \
+      include/d2d1_1.h \
+      include/d2d1_2.h \
+      include/d2d1_3.h \
+      include/dwrite.h \
+      include/dwrite_1.h \
+      include/dwrite_2.h \
+      include/dwrite_3.h
   )
+else
+  echo "=== Reusing cached Wine generated headers ==="
 fi
-test -f "$WINE_BUILD/include/config.h"
 
-echo "=== Preparing Direct2D + DirectWrite generated headers ==="
-(
-  cd "$WINE_BUILD"
-  make -j2 \
-    include/dcommon.h \
-    include/d2d1.h \
-    include/d2d1_1.h \
-    include/d2d1_2.h \
-    include/d2d1_3.h \
-    include/dwrite.h \
-    include/dwrite_1.h \
-    include/dwrite_2.h \
-    include/dwrite_3.h
-)
 for hdr in dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
   test -f "$WINE_BUILD/include/$hdr"
 done
