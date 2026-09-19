@@ -388,6 +388,47 @@ jobs:
           path: external/Madeira/app/Madeira/libwineserver.a
           key: wineserver-ios-${{ runner.os }}-97e2ce26-${{ hashFiles('tools/build_madeira_wineserver_ios.sh') }}
 
+      - name: Restore native DXMT cache
+        id: cache-dxmt
+        uses: actions/cache/restore@v4
+        with:
+          path: external/Madeira/app/Madeira/libdxmt_combined.a
+          key: dxmt-ios-winios-7be78cf3-llvm15-v1
+
+      - name: Bootstrap DXMT from proven WiniOS iOS archive
+        if: steps.cache-dxmt.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          echo "Reusing WiniOS's known-good iOS DXMT unix archive at pinned commit 7be78cf3."
+          brew list llvm@15 >/dev/null 2>&1 || brew install llvm@15
+          curl --fail --location --retry 3 \
+            -o /tmp/libdxmt_unix.a \
+            https://raw.githubusercontent.com/yanyantukebo1224/WiniOS/7be78cf3b6ad9fefbe5a98bb037785236e7dd36c/app/libdxmt_unix.a
+          test -s /tmp/libdxmt_unix.a
+          file /tmp/libdxmt_unix.a
+          LLVM15_DIR="$(brew --prefix llvm@15)"
+          mapfile_compat() { while IFS= read -r line; do LLVM_LIBS+=("$line"); done; }
+          LLVM_LIBS=()
+          find "$LLVM15_DIR/lib" -type f -name 'libLLVM*.a' -print | sort | mapfile_compat
+          test "${#LLVM_LIBS[@]}" -gt 0
+          xcrun -sdk iphoneos libtool -static \
+            -o external/Madeira/app/Madeira/libdxmt_combined.a \
+            /tmp/libdxmt_unix.a "${LLVM_LIBS[@]}"
+          test -s external/Madeira/app/Madeira/libdxmt_combined.a
+          file external/Madeira/app/Madeira/libdxmt_combined.a
+
+      - name: Verify native DXMT archive
+        run: |
+          test -s external/Madeira/app/Madeira/libdxmt_combined.a
+          file external/Madeira/app/Madeira/libdxmt_combined.a
+
+      - name: Save native DXMT cache
+        if: steps.cache-dxmt.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: external/Madeira/app/Madeira/libdxmt_combined.a
+          key: dxmt-ios-winios-7be78cf3-llvm15-v1
+
       - name: Download FEX and probe
         uses: actions/download-artifact@v4
         with:
