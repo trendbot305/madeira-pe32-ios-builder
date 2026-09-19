@@ -278,6 +278,13 @@ jobs:
             external/Madeira/build/ntdll-unix/obj
           key: ntdll-ios-${{ runner.os }}-97e2ce26-${{ hashFiles('tools/build_madeira_ntdll_ios.sh') }}
 
+      - name: Restore native FreeType cache
+        id: cache-freetype
+        uses: actions/cache/restore@v4
+        with:
+          path: external/Madeira/build/freetype-ios/build
+          key: freetype-ios-${{ runner.os }}-97e2ce26-ft2133-v1
+
       - name: Restore native win32u cache
         id: cache-win32u
         uses: actions/cache/restore@v4
@@ -310,6 +317,13 @@ jobs:
             external/Madeira/build/win32u-unix/obj
             external/Madeira/build/freetype-ios/build
           key: win32u-ios-${{ runner.os }}-97e2ce26-${{ hashFiles('tools/build_madeira_win32u_ios.sh') }}
+
+      - name: Save native FreeType cache
+        if: steps.cache-freetype.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: external/Madeira/build/freetype-ios/build
+          key: freetype-ios-${{ runner.os }}-97e2ce26-ft2133-v1
 
       - name: Checkout pinned FEX only after ntdll passes
         run: |
@@ -461,6 +475,16 @@ jobs:
         with:
           path: external/Madeira/app/Madeira/libdxmt_combined.a
           key: dxmt-ios-winios-7be78cf3-llvm15-v1
+
+      - name: Native cache reuse summary
+        run: |
+          echo "ntdll deps : ${{ steps.cache-ntdll-deps.outputs.cache-hit }}"
+          echo "ntdll      : ${{ steps.cache-ntdll.outputs.cache-hit }}"
+          echo "freetype   : ${{ steps.cache-freetype.outputs.cache-hit }}"
+          echo "win32u     : ${{ steps.cache-win32u.outputs.cache-hit }}"
+          echo "FEX        : ${{ steps.cache-fex.outputs.cache-hit }}"
+          echo "wineserver : ${{ steps.cache-wineserver.outputs.cache-hit }}"
+          echo "DXMT       : ${{ steps.cache-dxmt.outputs.cache-hit }}"
 
       - name: Download FEX and probe
         uses: actions/download-artifact@v4
