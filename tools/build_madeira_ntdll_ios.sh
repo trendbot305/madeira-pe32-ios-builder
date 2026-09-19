@@ -10,12 +10,12 @@ GNUTLS_BUILD="$MADEIRA_ROOT/build/gnutls-ios"
 FREETYPE_SRC="$MADEIRA_ROOT/research/freetype"
 LLVM_MINGW_DIR="$MADEIRA_ROOT/toolchains/llvm-mingw-20260421-ucrt-macos-universal"
 
-test -f "$WINE_BUILD/include/config.h"
+test -d "$WINE_SRC"
+test -f "$WINE_SRC/configure"
 test -f "$NTDLL_DIR/build.sh"
 test -f "$GNUTLS_BUILD/build.sh"
-test -x "$LLVM_MINGW_DIR/bin/aarch64-w64-mingw32-clang"
 
-echo "=== Ensuring modern Bison for widl ==="
+echo "=== Ensuring modern Bison for Wine/widl ==="
 BISON_MAJOR="$(bison --version 2>/dev/null | head -1 | sed -E 's/.* ([0-9]+)\..*/\1/' || true)"
 if [ -z "$BISON_MAJOR" ] || [ "$BISON_MAJOR" -lt 3 ]; then
   if ! brew list bison >/dev/null 2>&1; then
@@ -27,7 +27,28 @@ bison --version | head -1
 BISON_MAJOR="$(bison --version | head -1 | sed -E 's/.* ([0-9]+)\..*/\1/')"
 test "$BISON_MAJOR" -ge 3
 
+echo "=== Ensuring pinned llvm-mingw PE toolchain ==="
+if [ ! -x "$LLVM_MINGW_DIR/bin/aarch64-w64-mingw32-clang" ]; then
+  mkdir -p "$MADEIRA_ROOT/toolchains"
+  ARCHIVE="/tmp/llvm-mingw-20260421-ucrt-macos-universal.tar.xz"
+  curl -L --fail --retry 3 \
+    "https://github.com/mstorsjo/llvm-mingw/releases/download/20260421/llvm-mingw-20260421-ucrt-macos-universal.tar.xz" \
+    -o "$ARCHIVE"
+  echo "bd85a3975723815cef28dbbd2ca2cb0c926f6b348a12a0453f39f7af273cb3f7  $ARCHIVE" | shasum -a 256 -c -
+  tar -xJf "$ARCHIVE" -C "$MADEIRA_ROOT/toolchains"
+fi
+test -x "$LLVM_MINGW_DIR/bin/aarch64-w64-mingw32-clang"
 export PATH="$LLVM_MINGW_DIR/bin:$PATH"
+
+echo "=== Preparing Wine generated host tree ==="
+mkdir -p "$WINE_BUILD"
+if [ ! -f "$WINE_BUILD/include/config.h" ]; then
+  (
+    cd "$WINE_BUILD"
+    ../configure
+  )
+fi
+test -f "$WINE_BUILD/include/config.h"
 
 echo "=== Preparing DirectWrite generated headers ==="
 (
@@ -37,9 +58,8 @@ echo "=== Preparing DirectWrite generated headers ==="
 test -f "$WINE_BUILD/include/dwrite.h"
 test -f "$WINE_BUILD/include/dwrite_3.h"
 
-# Madeira's ntdll iOS script names build-arm64ec/include because that was
-# the original local build tree containing widl-generated DWrite headers.
-# For CI the same pinned Wine revision generated them in build-macos.
+# Madeira's ntdll iOS script expects these generated headers at
+# wine/build-arm64ec/include. Reuse the same pinned Wine-generated headers.
 mkdir -p "$WINE_SRC/build-arm64ec"
 rm -rf "$WINE_SRC/build-arm64ec/include"
 ln -s ../build-macos/include "$WINE_SRC/build-arm64ec/include"
@@ -52,8 +72,10 @@ if [ ! -d "$FREETYPE_SRC/include/freetype" ]; then
 fi
 test -f "$FREETYPE_SRC/include/ft2build.h"
 
-echo "=== Building pinned GnuTLS static stack for iOS ==="
-bash "$GNUTLS_BUILD/build.sh"
+echo "=== Ensuring pinned GnuTLS static stack for iOS ==="
+if [ ! -s "$MADEIRA_ROOT/toolchains/gnutls-ios/lib/libgnutls.a" ]; then
+  bash "$GNUTLS_BUILD/build.sh"
+fi
 test -f "$MADEIRA_ROOT/toolchains/gnutls-ios/lib/libgnutls.a"
 test -f "$MADEIRA_ROOT/toolchains/gnutls-ios/include/gnutls/gnutls.h"
 
