@@ -1,0 +1,659 @@
+name: Build unsigned Madeira PE32 IPA v45
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/build-unsigned-ipa-v45.yml"
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: madeira-pe32-public-build
+  cancel-in-progress: true
+
+jobs:
+  fex-and-probe:
+    if: false # Reuse verified artifacts from run 9 while debugging the iOS job.
+    name: Build FEX runtime and PE32 probe
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout builder
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Checkout pinned Madeira recursively
+        uses: actions/checkout@v4
+        with:
+          repository: willfaust/Madeira
+          ref: 97e2ce26e6dc9e4a38976f3b5deb9272d64558eb
+          path: external/Madeira
+          submodules: recursive
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build xz-utils python3 file
+
+      - name: Download verified llvm-mingw
+        run: |
+          mkdir -p toolchains
+          curl -L --fail --retry 3 \
+            https://github.com/mstorsjo/llvm-mingw/releases/download/20260421/llvm-mingw-20260421-ucrt-ubuntu-22.04-x86_64.tar.xz \
+            -o /tmp/llvm-mingw.tar.xz
+          echo "f8b8cce779affeab47bcaec6ce6e9e768b166094a366123ef64b2d0b389cc121  /tmp/llvm-mingw.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/llvm-mingw.tar.xz -C toolchains
+          TOOLCHAIN_DIR="$(find "$PWD/toolchains" -maxdepth 1 -type d -name 'llvm-mingw-*' | head -1)"
+          test -n "$TOOLCHAIN_DIR"
+          echo "$TOOLCHAIN_DIR/bin" >> "$GITHUB_PATH"
+
+      - name: Patch pinned FEX diagnostics for standalone WoW64
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("external/Madeira/FEX/FEXCore/Source/Interface/Core/Core.cpp")
+          s = p.read_text()
+          marker = "#ifdef FEX_IOS_HOST\n  /* iOS-Madeira ml316: report ExitToX64"
+          if marker not in s:
+              s = s.replace(
+                  "  /* iOS-Madeira ml316: report ExitToX64",
+                  "#ifdef FEX_IOS_HOST\n  /* iOS-Madeira ml316: report ExitToX64",
+                  1,
+              )
+              s = s.replace(
+                  "  /* iOS-Madeira: refuse to compile obviously-invalid guest RIPs.",
+                  "#endif // FEX_IOS_HOST\n\n  /* iOS-Madeira: refuse to compile obviously-invalid guest RIPs.",
+                  1,
+              )
+          # The FFS/callback diagnostic arrays are defined by the Windows
+          # ARM64EC frontend only. Native iOS FEXCore must not reference them.
+          s = s.replace(
+              "#ifdef FEX_IOS_HOST\n  /* iOS-Madeira ml316: report ExitToX64",
+              "#if defined(FEX_IOS_HOST) && defined(_WIN32)\n  /* iOS-Madeira ml316: report ExitToX64",
+          )
+          s = s.replace(
+              "uint64_t now = (uint64_t)time(NULL);",
+              "uint64_t now = 0; /* standalone WoW64 build: no CRT time() */",
+          )
+          p.write_text(s)
+          PY
+
+      - name: Configure and build FEX WoW64 runtime
+        run: |
+          cmake \
+            -S external/Madeira/FEX \
+            -B external/Madeira/FEX/build-wow64 \
+            -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$PWD/external/Madeira/FEX/Data/CMake/toolchain_mingw.cmake" \
+            -DMINGW_TRIPLE=aarch64-w64-mingw32 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DTUNE_CPU=generic \
+            -DBUILD_TESTING=OFF \
+            -DENABLE_CCACHE=OFF \
+            -DENABLE_LTO=OFF \
+            -DENABLE_OFFLINE_TELEMETRY=OFF \
+            -DBUILD_FEX_LINUX_TESTS=OFF \
+            -DBUILD_THUNKS=OFF \
+            -DBUILD_FEXCONFIG=OFF
+          cmake --build external/Madeira/FEX/build-wow64 --target wow64fex --parallel 2
+
+      - name: Build and characterize synthetic PE32 guest
+        run: |
+          mkdir -p out/runtime
+          i686-w64-mingw32-clang -Os -s -nostdlib \
+            -Wl,--subsystem,console \
+            -Wl,--entry,_pe32_entry@0 \
+            integration/madeira/pe32_probe.c -lkernel32 \
+            -o out/runtime/madeira-pe32-probe.exe
+          python3 tools/pe_characterizer.py \
+            out/runtime/madeira-pe32-probe.exe \
+            -o out/runtime/madeira-pe32-probe.json
+          python3 - <<'PY'
+          import json
+          r = json.load(open("out/runtime/madeira-pe32-probe.json"))
+          assert r["pe"]["machine"] == "x86", r["pe"]
+          assert r["pe"]["format"] == "PE32", r["pe"]
+          dlls = {x["dll"].lower() for x in r["imports"]}
+          assert dlls == {"kernel32.dll"}, dlls
+          PY
+
+      - name: Collect and verify FEX runtime
+        run: |
+          DLL="$(find external/Madeira/FEX/build-wow64 -type f -iname '*wow64fex*.dll' | head -1)"
+          test -n "$DLL"
+          cp "$DLL" out/runtime/libwow64fex.dll
+          file out/runtime/libwow64fex.dll
+          aarch64-w64-mingw32-objdump -p out/runtime/libwow64fex.dll > out/runtime/libwow64fex-objdump.txt
+          for export in \
+            BTCpuGetBopCode BTCpuGetContext BTCpuIsProcessorFeaturePresent \
+            BTCpuProcessInit BTCpuThreadInit BTCpuResetToConsistentState \
+            BTCpuSetContext BTCpuSimulate BTCpuFlushInstructionCache2 \
+            BTCpuFlushInstructionCacheHeavy BTCpuNotifyMapViewOfSection \
+            BTCpuNotifyMemoryAlloc BTCpuNotifyMemoryDirty BTCpuNotifyMemoryFree \
+            BTCpuNotifyMemoryProtect BTCpuNotifyReadFile \
+            BTCpuNotifyUnmapViewOfSection BTCpuUpdateProcessorInformation \
+            BTCpuProcessTerm BTCpuThreadTerm __wine_get_unix_opcode; do
+            grep -q "$export" out/runtime/libwow64fex-objdump.txt
+          done
+          sha256sum out/runtime/libwow64fex.dll out/runtime/madeira-pe32-probe.exe \
+            > out/runtime/SHA256SUMS
+
+      - name: Upload FEX and probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: fex-and-pe32-probe
+          path: out/runtime
+          if-no-files-found: error
+          retention-days: 7
+
+  wine-modules:
+    if: false # Reuse verified artifacts from run 9 while debugging the iOS job.
+    name: Build minimal Wine WoW64 modules
+    runs-on: windows-latest
+    steps:
+      - name: Checkout builder
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Build pinned Wine module set
+        shell: pwsh
+        run: ./tools/build_wine_i386_windows.ps1
+
+      - name: Upload Wine modules
+        uses: actions/upload-artifact@v4
+        with:
+          name: wine-wow64-modules
+          path: out/wine-wow64
+          if-no-files-found: error
+          retention-days: 7
+
+  device-ipa:
+    name: Build unsigned iPhone IPA
+    runs-on: macos-latest
+    steps:
+      - name: Checkout builder
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Checkout pinned Madeira + Wine only
+        run: |
+          mkdir -p external
+          git clone --filter=blob:none --no-checkout https://github.com/willfaust/Madeira.git external/Madeira
+          git -C external/Madeira fetch --depth 1 origin 97e2ce26e6dc9e4a38976f3b5deb9272d64558eb
+          git -C external/Madeira checkout --detach FETCH_HEAD
+          git -C external/Madeira submodule update --init --recursive --depth 1 wine
+
+      - name: Add persistent runtime crash checkpoints
+        run: |
+          python3 tools/instrument_madeira_runtime.py external/Madeira
+          python3 tools/patch_crash_trace_ui.py external/Madeira
+
+      - name: Restore ntdll dependency cache
+        id: cache-ntdll-deps
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            external/Madeira/toolchains/llvm-mingw-20260421-ucrt-macos-universal
+            external/Madeira/toolchains/gnutls-ios
+            external/Madeira/wine/build-macos
+            external/Madeira/wine/build-arm64ec
+            external/Madeira/research/freetype
+          key: ntdll-deps-${{ runner.os }}-wine7817e220-gnutls389-ft2133-v8
+          restore-keys: |
+            ntdll-deps-${{ runner.os }}-wine7817e220-gnutls389-ft2133-v7
+            ntdll-deps-${{ runner.os }}-wine7817e220-gnutls389-ft2133-v6
+            ntdll-deps-${{ runner.os }}-wine7817e220-gnutls389-ft2133-v5
+            ntdll-deps-${{ runner.os }}-wine7817e220-gnutls389-ft2133-v4
+            ntdll-deps-${{ runner.os }}-wine7817e220-gnutls389-ft2133-v3
+            ntdll-deps-${{ runner.os }}-wine7817e220-gnutls389-ft2133-v2
+            ntdll-deps-${{ runner.os }}-wine7817e220-gnutls389-ft2133-v1
+
+      - name: Restore compiled native ntdll cache
+        id: cache-ntdll
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            external/Madeira/app/Madeira/libntdll_unix.a
+            external/Madeira/build/ntdll-unix/obj
+          key: ntdll-ios-${{ runner.os }}-97e2ce26-${{ hashFiles('tools/build_madeira_ntdll_ios.sh') }}
+
+      - name: Build native Madeira ntdll archive
+        if: steps.cache-ntdll.outputs.cache-hit != 'true'
+        run: |
+          bash tools/build_madeira_ntdll_ios.sh external/Madeira
+          test -s external/Madeira/app/Madeira/libntdll_unix.a
+
+      - name: Check ntdll dependency cache readiness
+        id: ntdll-deps-ready
+        if: always()
+        run: |
+          ready=true
+          test -x external/Madeira/toolchains/llvm-mingw-20260421-ucrt-macos-universal/bin/aarch64-w64-mingw32-clang || ready=false
+          test -s external/Madeira/toolchains/gnutls-ios/lib/libgnutls.a || ready=false
+          test -f external/Madeira/toolchains/gnutls-ios/include/gnutls/gnutls.h || ready=false
+          test -f external/Madeira/wine/build-macos/include/config.h || ready=false
+          test -f external/Madeira/wine/build-macos/include/objidlbase.h || ready=false
+          test -f external/Madeira/wine/build-macos/include/objidl.h || ready=false
+          test -f external/Madeira/wine/build-macos/include/oaidl.h || ready=false
+          test -f external/Madeira/wine/build-macos/include/propidl.h || ready=false
+          test -f external/Madeira/wine/build-macos/include/oleidl.h || ready=false
+          test -f external/Madeira/wine/build-macos/include/dxgiformat.h || ready=false
+          test -f external/Madeira/wine/build-macos/include/d3d10_1.h || ready=false
+          test -f external/Madeira/wine/build-macos/include/msxml.h || ready=false
+          test -f external/Madeira/wine/build-macos/include/dxgicommon.h || ready=false
+          test -f external/Madeira/wine/build-macos/include/dxgi1_6.h || ready=false
+          test -f external/Madeira/wine/build-macos/include/d2d1effectauthor.h || ready=false
+          test -f external/Madeira/wine/build-macos/include/d2d1.h || ready=false
+          test -f external/Madeira/wine/build-macos/include/dwrite_3.h || ready=false
+          test -f external/Madeira/research/freetype/include/ft2build.h || ready=false
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+
+      - name: Save ntdll dependency cache
+        if: always() && steps.cache-ntdll-deps.outputs.cache-hit != 'true' && steps.ntdll-deps-ready.outputs.ready == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            external/Madeira/toolchains/llvm-mingw-20260421-ucrt-macos-universal
+            external/Madeira/toolchains/gnutls-ios
+            external/Madeira/wine/build-macos
+            external/Madeira/wine/build-arm64ec
+            external/Madeira/research/freetype
+          key: ntdll-deps-${{ runner.os }}-wine7817e220-gnutls389-ft2133-v8
+
+      - name: Verify native Madeira ntdll archive
+        run: |
+          test -s external/Madeira/app/Madeira/libntdll_unix.a
+          file external/Madeira/app/Madeira/libntdll_unix.a
+
+      - name: Save compiled native ntdll cache
+        if: steps.cache-ntdll.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            external/Madeira/app/Madeira/libntdll_unix.a
+            external/Madeira/build/ntdll-unix/obj
+          key: ntdll-ios-${{ runner.os }}-97e2ce26-${{ hashFiles('tools/build_madeira_ntdll_ios.sh') }}
+
+      - name: Restore native FreeType cache
+        id: cache-freetype
+        uses: actions/cache/restore@v4
+        with:
+          path: external/Madeira/build/freetype-ios/build
+          key: freetype-ios-${{ runner.os }}-97e2ce26-ft2133-v1
+
+      - name: Restore native win32u cache
+        id: cache-win32u
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            external/Madeira/app/Madeira/libwin32u_unix.a
+            external/Madeira/build/win32u-unix/obj
+            external/Madeira/build/freetype-ios/build
+          key: win32u-ios-${{ runner.os }}-97e2ce26-${{ hashFiles('tools/build_madeira_win32u_ios.sh') }}
+
+      - name: Build native Madeira win32u archive
+        if: steps.cache-win32u.outputs.cache-hit != 'true'
+        run: |
+          bash tools/build_madeira_win32u_ios.sh external/Madeira
+          test -s external/Madeira/app/Madeira/libwin32u_unix.a
+
+      - name: Verify native Madeira win32u archive
+        run: |
+          test -s external/Madeira/app/Madeira/libwin32u_unix.a
+          file external/Madeira/app/Madeira/libwin32u_unix.a
+          xcrun lipo -info external/Madeira/app/Madeira/libwin32u_unix.a
+          xcrun nm -g external/Madeira/app/Madeira/libwin32u_unix.a | grep -q '_win32u_unix_lib_init'
+
+      - name: Save native win32u cache
+        if: steps.cache-win32u.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            external/Madeira/app/Madeira/libwin32u_unix.a
+            external/Madeira/build/win32u-unix/obj
+            external/Madeira/build/freetype-ios/build
+          key: win32u-ios-${{ runner.os }}-97e2ce26-${{ hashFiles('tools/build_madeira_win32u_ios.sh') }}
+
+      - name: Save native FreeType cache
+        if: steps.cache-freetype.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: external/Madeira/build/freetype-ios/build
+          key: freetype-ios-${{ runner.os }}-97e2ce26-ft2133-v1
+
+      - name: Restore pinned FEX source cache
+        id: cache-fex-source
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            external/Madeira/FEX
+            external/Madeira/.git/modules/FEX
+          key: fex-source-${{ runner.os }}-97e2ce26-recursive-v1
+
+      - name: Checkout pinned FEX only after ntdll passes
+        if: steps.cache-fex-source.outputs.cache-hit != 'true'
+        run: |
+          git -C external/Madeira submodule update --init --recursive --depth 1 FEX
+
+      - name: Save pinned FEX source cache
+        if: steps.cache-fex-source.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            external/Madeira/FEX
+            external/Madeira/.git/modules/FEX
+          key: fex-source-${{ runner.os }}-97e2ce26-recursive-v1
+
+      - name: Restore native FEX cache
+        id: cache-fex
+        uses: actions/cache/restore@v4
+        with:
+          path: external/Madeira/FEX/build-ios
+          key: fex-ios-${{ runner.os }}-97e2ce26-native-guards-v2
+
+      - name: Guard ARM64EC-only diagnostics in native iOS FEX
+        if: steps.cache-fex.outputs.cache-hit != 'true'
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("external/Madeira/FEX/FEXCore/Source/Interface/Core/Core.cpp")
+          s = p.read_text()
+          start_marker = "  /* iOS-Madeira ml316: report ExitToX64 FFS bypasses"
+          end_marker = "  /* iOS-Madeira: refuse to compile obviously-invalid guest RIPs."
+          start = s.index(start_marker)
+          end = s.index(end_marker, start)
+          reporter = s[start:end]
+          if "IosFfsBypassLog" not in reporter or "IosCbEntryLog" not in reporter:
+              raise SystemExit("Unexpected FEX reporter block")
+          nl = chr(10)
+          s = (
+              s[:start]
+              + "#if defined(FEX_IOS_HOST) && defined(_WIN32)"
+              + nl
+              + reporter
+              + "#endif // FEX_IOS_HOST && _WIN32"
+              + nl + nl
+              + s[end:]
+          )
+          p.write_text(s)
+          PY
+
+      - name: Guard Windows-only CASPAL diagnostics in native iOS FEX
+        if: steps.cache-fex.outputs.cache-hit != 'true'
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("external/Madeira/FEX/FEXCore/Source/Utils/ArchHelpers/Arm64.cpp")
+          s = p.read_text()
+          start_marker = "  MEMORY_BASIC_INFORMATION mbi {};"
+          end_marker = "                    mbi.Protect, type, mbi.State);"
+          start = s.index(start_marker)
+          end = s.index(end_marker, start) + len(end_marker)
+          windows_block = s[start:end]
+          fallback = (
+              '#if defined(_WIN32)\n'
+              + windows_block
+              + '\n#else\n'
+              + '  LogMan::Msg::EFmt("[caspal128] MISALIGNED-UNSUPPORTED Size={} addrReg=x{} addr={:#x} misalign={} "'
+              + '\n                    "crosses16B={} | region metadata unavailable on native iOS",'
+              + '\n                    Size, AddressReg, GPRs[AddressReg], GPRs[AddressReg] & 15,'
+              + '\n                    (GPRs[AddressReg] & 15) ? "yes" : "no");'
+              + '\n#endif'
+          )
+          s = s[:start] + fallback + s[end:]
+          p.write_text(s)
+          PY
+
+      - name: Build FEX iOS static libraries and generated headers
+        if: steps.cache-fex.outputs.cache-hit != 'true'
+        run: |
+          cmake             -S external/Madeira/FEX             -B external/Madeira/FEX/build-ios             -G Ninja             -DCMAKE_SYSTEM_NAME=iOS             -DCMAKE_SYSTEM_PROCESSOR=arm64             -DCMAKE_OSX_SYSROOT=iphoneos             -DCMAKE_OSX_ARCHITECTURES=arm64             -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0             -DCMAKE_BUILD_TYPE=Release             -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY             -DTUNE_CPU=generic             -DBUILD_TESTING=OFF             -DBUILD_FEX_LINUX_TESTS=OFF             -DBUILD_THUNKS=OFF             -DBUILD_FEXCONFIG=OFF             -DENABLE_CCACHE=OFF             -DENABLE_LTO=OFF             -DENABLE_OFFLINE_TELEMETRY=OFF
+          cmake --build external/Madeira/FEX/build-ios             --target FEXCore FEXCore_Base JemallocLibs             --parallel 3
+
+      - name: Verify native FEX outputs
+        run: |
+          test -f external/Madeira/FEX/build-ios/include/FEXCore/Config/ConfigValues.inl
+          test -f external/Madeira/FEX/build-ios/include/FEXCore/Config/ConfigOptions.inl
+          test -f external/Madeira/FEX/build-ios/FEXCore/Source/libFEXCore.a
+          test -f external/Madeira/FEX/build-ios/FEXCore/Source/libFEXCore_Base.a
+          test -f external/Madeira/FEX/build-ios/FEXCore/Source/libJemallocLibs.a
+
+      - name: Save native FEX cache
+        if: steps.cache-fex.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: external/Madeira/FEX/build-ios
+          key: fex-ios-${{ runner.os }}-97e2ce26-native-guards-v2
+
+      - name: Restore native wineserver cache
+        id: cache-wineserver
+        uses: actions/cache/restore@v4
+        with:
+          path: external/Madeira/app/Madeira/libwineserver.a
+          key: wineserver-ios-${{ runner.os }}-97e2ce26-${{ hashFiles('tools/build_madeira_wineserver_ios.sh') }}
+
+      - name: Build native Madeira wineserver archive
+        if: steps.cache-wineserver.outputs.cache-hit != 'true'
+        run: |
+          bash tools/build_madeira_wineserver_ios.sh external/Madeira
+          test -s external/Madeira/app/Madeira/libwineserver.a
+
+      - name: Verify native Madeira wineserver archive
+        run: |
+          test -s external/Madeira/app/Madeira/libwineserver.a
+          file external/Madeira/app/Madeira/libwineserver.a
+
+      - name: Save native wineserver cache
+        if: steps.cache-wineserver.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: external/Madeira/app/Madeira/libwineserver.a
+          key: wineserver-ios-${{ runner.os }}-97e2ce26-${{ hashFiles('tools/build_madeira_wineserver_ios.sh') }}
+
+      - name: Restore LLVM 15 iOS cache
+        id: cache-llvm-ios
+        uses: actions/cache/restore@v4
+        with:
+          path: external/Madeira/toolchains/llvm-ios-build/lib
+          key: llvm15-ios-${{ runner.os }}-15.0.7-arm64-${{ hashFiles('tools/build_llvm15_ios_for_dxmt.sh') }}
+
+      - name: Build LLVM 15 static libraries for iOS
+        if: steps.cache-llvm-ios.outputs.cache-hit != 'true'
+        run: |
+          bash tools/build_llvm15_ios_for_dxmt.sh external/Madeira
+          test -s external/Madeira/toolchains/llvm-ios-build/lib/libLLVMCore.a
+
+      - name: Verify LLVM 15 iOS static libraries
+        run: |
+          test -s external/Madeira/toolchains/llvm-ios-build/lib/libLLVMCore.a
+          test -s external/Madeira/toolchains/llvm-ios-build/lib/libLLVMSupport.a
+          echo "LLVM iOS archives: $(find external/Madeira/toolchains/llvm-ios-build/lib -type f -name 'libLLVM*.a' | wc -l | tr -d ' ')"
+
+      - name: Save LLVM 15 iOS cache
+        if: steps.cache-llvm-ios.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: external/Madeira/toolchains/llvm-ios-build/lib
+          key: llvm15-ios-${{ runner.os }}-15.0.7-arm64-${{ hashFiles('tools/build_llvm15_ios_for_dxmt.sh') }}
+
+      - name: Restore native DXMT cache
+        id: cache-dxmt
+        uses: actions/cache/restore@v4
+        with:
+          path: external/Madeira/app/Madeira/libdxmt_combined.a
+          key: dxmt-ios-winios-7be78cf3-llvm15-ios-v1
+
+      - name: Assemble DXMT with iOS LLVM archives
+        if: steps.cache-dxmt.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          echo "Combining WiniOS iOS DXMT objects with LLVM 15 built for iOS arm64."
+          curl --fail --location --retry 3 \
+            -o /tmp/libdxmt_unix.a \
+            https://raw.githubusercontent.com/yanyantukebo1224/WiniOS/7be78cf3b6ad9fefbe5a98bb037785236e7dd36c/app/libdxmt_unix.a
+          test -s /tmp/libdxmt_unix.a
+          LLVM_LIST=/tmp/llvm15-ios-static-libs.txt
+          find external/Madeira/toolchains/llvm-ios-build/lib -type f -name 'libLLVM*.a' -print | sort > "$LLVM_LIST"
+          test -s "$LLVM_LIST"
+          echo "LLVM iOS static archives: $(wc -l < "$LLVM_LIST" | tr -d ' ')"
+          xargs xcrun -sdk iphoneos libtool -static \
+            -o external/Madeira/app/Madeira/libdxmt_combined.a \
+            /tmp/libdxmt_unix.a < "$LLVM_LIST"
+          test -s external/Madeira/app/Madeira/libdxmt_combined.a
+          file external/Madeira/app/Madeira/libdxmt_combined.a
+
+      - name: Verify native DXMT archive
+        run: |
+          test -s external/Madeira/app/Madeira/libdxmt_combined.a
+          file external/Madeira/app/Madeira/libdxmt_combined.a
+
+      - name: Save native DXMT cache
+        if: steps.cache-dxmt.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: external/Madeira/app/Madeira/libdxmt_combined.a
+          key: dxmt-ios-winios-7be78cf3-llvm15-ios-v1
+
+      - name: Native cache reuse summary
+        run: |
+          echo "ntdll deps : ${{ steps.cache-ntdll-deps.outputs.cache-hit }}"
+          echo "ntdll      : ${{ steps.cache-ntdll.outputs.cache-hit }}"
+          echo "freetype   : ${{ steps.cache-freetype.outputs.cache-hit }}"
+          echo "win32u     : ${{ steps.cache-win32u.outputs.cache-hit }}"
+          echo "FEX        : ${{ steps.cache-fex.outputs.cache-hit }}"
+          echo "wineserver : ${{ steps.cache-wineserver.outputs.cache-hit }}"
+          echo "LLVM iOS   : ${{ steps.cache-llvm-ios.outputs.cache-hit }}"
+          echo "DXMT       : ${{ steps.cache-dxmt.outputs.cache-hit }}"
+
+      - name: Download FEX and probe
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: trendbot305/madeira-pe32-ios-builder
+          run-id: 35462377249
+          name: fex-and-pe32-probe
+          path: kit/fex
+
+      - name: Download Wine modules
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: trendbot305/madeira-pe32-ios-builder
+          run-id: 35462377249
+          name: wine-wow64-modules
+          path: kit/wine
+
+      - name: Locate and verify inputs
+        run: |
+          PROBE_EXE="$(find kit/fex -type f -name madeira-pe32-probe.exe | head -1)"
+          FEX_DLL="$(find kit/fex -type f -name libwow64fex.dll | head -1)"
+          WINE_MANIFEST="$(find kit/wine -type f -name manifest.json | head -1)"
+          test -n "$PROBE_EXE"
+          test -n "$FEX_DLL"
+          test -n "$WINE_MANIFEST"
+          WINE_ROOT="$(dirname "$WINE_MANIFEST")"
+          echo "PROBE_EXE=$PROBE_EXE" >> "$GITHUB_ENV"
+          echo "FEX_DLL=$FEX_DLL" >> "$GITHUB_ENV"
+          echo "WINE_ROOT=$WINE_ROOT" >> "$GITHUB_ENV"
+          python3 - "$WINE_MANIFEST" <<'PY'
+          import json, sys
+          manifest = json.load(open(sys.argv[1]))
+          expected = {
+              ("i386-windows", "ntdll.dll", "x86"),
+              ("i386-windows", "kernelbase.dll", "x86"),
+              ("i386-windows", "kernel32.dll", "x86"),
+              ("aarch64-windows", "wow64.dll", "arm64"),
+              ("aarch64-windows", "wow64win.dll", "arm64"),
+          }
+          actual = {(x["architecture"], x["name"], x["machine"]) for x in manifest}
+          assert actual == expected, (actual, expected)
+          PY
+
+      - name: Overlay PE32 runtime
+        run: |
+          mkdir -p out
+          python3 integration/madeira/prepare_pe32_probe.py             --madeira-root external/Madeira             --probe-exe "$PROBE_EXE"             --wow64fex-dll "$FEX_DLL"             --wine-wow64-root "$WINE_ROOT"             --manifest out/madeira-pe32-device-manifest.json
+          test -f external/Madeira/app/Madeira/i386-windows/madeira-pe32-probe.exe
+          test -f external/Madeira/app/Madeira/i386-windows/ntdll.dll
+          test -f external/Madeira/app/Madeira/aarch64-windows/libwow64fex.dll
+          test -f external/Madeira/app/Madeira/aarch64-windows/xtajit.dll
+          mkdir -p external/Madeira/app/Madeira/x86_64-vcruntime
+
+      - name: Audit native linker inputs
+        run: |
+          set -euo pipefail
+          archives=(
+            external/Madeira/app/Madeira/libntdll_unix.a
+            external/Madeira/app/Madeira/libwineserver.a
+            external/Madeira/app/Madeira/libwin32u_unix.a
+            external/Madeira/app/Madeira/libdxmt_combined.a
+            external/Madeira/FEX/build-ios/FEXCore/Source/libFEXCore.a
+            external/Madeira/FEX/build-ios/FEXCore/Source/libFEXCore_Base.a
+            external/Madeira/FEX/build-ios/FEXCore/Source/libJemallocLibs.a
+          )
+          for lib in "${archives[@]}"; do
+            echo "=== $lib ==="
+            test -s "$lib"
+            file "$lib"
+            xcrun lipo -info "$lib" || true
+            count="$(xcrun ar -t "$lib" | wc -l | tr -d ' ')"
+            echo "archive members: $count"
+            test "$count" -gt 0
+          done
+
+          echo "=== DXMT Mach-O platform audit ==="
+          xcrun otool -l external/Madeira/app/Madeira/libdxmt_combined.a > /tmp/dxmt-otool.txt || true
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('/tmp/dxmt-otool.txt')
+          text = p.read_text(errors='replace') if p.exists() else ''
+          lines = text.splitlines()
+          platforms = {}
+          for i, line in enumerate(lines):
+              if 'LC_BUILD_VERSION' not in line:
+                  continue
+              for nxt in lines[i+1:i+8]:
+                  t = nxt.strip()
+                  if t.startswith('platform '):
+                      name = t.split(None, 1)[1]
+                      platforms[name] = platforms.get(name, 0) + 1
+                      break
+          print('DXMT LC_BUILD_VERSION platforms:', platforms or 'none reported')
+          PY
+
+      - name: Build unsigned device app
+        run: |
+          xcodebuild -version
+          rm -rf build Payload Madeira-PE32-unsigned.ipa
+          xcodebuild             -project external/Madeira/app/Madeira.xcodeproj             -scheme Madeira             -configuration Release             -sdk iphoneos             -destination 'generic/platform=iOS'             -derivedDataPath "$PWD/build/DerivedData"             CODE_SIGNING_ALLOWED=NO             CODE_SIGNING_REQUIRED=NO             IPHONEOS_DEPLOYMENT_TARGET=18.0             build
+
+      - name: Package unsigned IPA
+        run: |
+          APP="$(find build/DerivedData/Build/Products/Release-iphoneos -maxdepth 1 -type d -name '*.app' | head -1)"
+          test -n "$APP"
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          /usr/bin/zip -qry Madeira-PE32-unsigned.ipa Payload
+          shasum -a 256 Madeira-PE32-unsigned.ipa > Madeira-PE32-unsigned.ipa.sha256
+          /usr/bin/du -h Madeira-PE32-unsigned.ipa
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' Payload/*.app/Info.plist
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Madeira-PE32-unsigned-IPA
+          path: |
+            Madeira-PE32-unsigned.ipa
+            Madeira-PE32-unsigned.ipa.sha256
+            out/madeira-pe32-device-manifest.json
+          if-no-files-found: error
+          retention-days: 7
