@@ -354,6 +354,11 @@ jobs:
           test -f external/Madeira/FEX/build-ios/FEXCore/Source/libFEXCore_Base.a
           test -f external/Madeira/FEX/build-ios/FEXCore/Source/libJemallocLibs.a
 
+      - name: Build native Madeira wineserver archive
+        run: |
+          bash tools/build_madeira_wineserver_ios.sh external/Madeira
+          test -s external/Madeira/app/Madeira/libwineserver.a
+
       - name: Build unsigned device app
         run: |
           xcodebuild -version
