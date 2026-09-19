@@ -16,7 +16,7 @@ test -f "$NTDLL_DIR/build.sh"
 test -f "$GNUTLS_BUILD/build.sh"
 
 NEED_WINE_GEN=false
-for hdr in config.h wtypesbase.h wtypes.h unknwn.h objidlbase.h objidl.h oaidl.h propidl.h oleidl.h dxgiformat.h d3d10_1.h dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
+for hdr in config.h wtypesbase.h wtypes.h unknwn.h objidlbase.h objidl.h oaidl.h propidl.h oleidl.h msxml.h dxgiformat.h d3d10_1.h dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
   test -f "$WINE_BUILD/include/$hdr" || NEED_WINE_GEN=true
 done
 
@@ -69,7 +69,7 @@ if [ "$NEED_WINE_GEN" = true ]; then
     # dependency-first; widl can also resolve imports from the source tree.
     WIDL_HEADERS=(
       wtypesbase wtypes unknwn objidlbase objidl
-      oaidl propidl oleidl servprov urlmon ocidl
+      oaidl propidl oleidl msxml msxml2 msxml6 servprov urlmon ocidl
       dxgiformat dxgitype dxgi d3dcommon
       d3d10 d3d10sdklayers d3d10shader d3d10effect d3d10_1
       dcommon
@@ -116,7 +116,7 @@ else
   echo "=== Reusing cached Wine generated headers ==="
 fi
 
-for hdr in wtypesbase.h wtypes.h unknwn.h objidlbase.h objidl.h oaidl.h propidl.h oleidl.h dxgiformat.h d3d10_1.h dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
+for hdr in wtypesbase.h wtypes.h unknwn.h objidlbase.h objidl.h oaidl.h propidl.h oleidl.h msxml.h dxgiformat.h d3d10_1.h dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
   test -f "$WINE_BUILD/include/$hdr"
 done
 
