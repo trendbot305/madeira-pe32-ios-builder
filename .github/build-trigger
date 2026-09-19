@@ -16,3 +16,4 @@ run 17: pinned macOS llvm-mingw for Wine configure
 run 18: corrected wineserver DATADIR/BINDIR string macros
 run 19: native ntdll + crypto + generated DWrite headers
 run 20: modern bison in ntdll widl stage
+run 21: frontier-first cached native stages
