@@ -194,6 +194,7 @@ jobs:
 
       - name: Add persistent runtime crash checkpoints
         run: |
+          python3 tools/patch_pre_fex_trace.py external/Madeira
           python3 tools/instrument_madeira_runtime.py external/Madeira
           python3 tools/patch_crash_trace_ui.py external/Madeira
 
