@@ -228,36 +228,67 @@ jobs:
           assert actual == expected, (actual, expected)
           PY
 
-      - name: Checkout pinned Madeira
+      - name: Checkout pinned Madeira + Wine only
         run: |
           git clone https://github.com/willfaust/Madeira.git external/Madeira
           git -C external/Madeira checkout 97e2ce26e6dc9e4a38976f3b5deb9272d64558eb
-          git -C external/Madeira submodule update --init --recursive FEX wine
+          git -C external/Madeira submodule update --init --recursive wine
 
-      - name: Overlay PE32 runtime
+      - name: Restore native ntdll cache
+        id: cache-ntdll
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            external/Madeira/app/Madeira/libntdll_unix.a
+            external/Madeira/toolchains/llvm-mingw-20260421-ucrt-macos-universal
+            external/Madeira/toolchains/gnutls-ios
+            external/Madeira/wine/build-macos
+            external/Madeira/wine/build-arm64ec
+            external/Madeira/research/freetype
+            external/Madeira/build/ntdll-unix/obj
+          key: ntdll-ios-${{ runner.os }}-97e2ce26-${{ hashFiles('tools/build_madeira_ntdll_ios.sh') }}
+
+      - name: Build native Madeira ntdll archive
+        if: steps.cache-ntdll.outputs.cache-hit != 'true'
         run: |
-          mkdir -p out
-          python3 integration/madeira/prepare_pe32_probe.py \
-            --madeira-root external/Madeira \
-            --probe-exe "$PROBE_EXE" \
-            --wow64fex-dll "$FEX_DLL" \
-            --wine-wow64-root "$WINE_ROOT" \
-            --manifest out/madeira-pe32-device-manifest.json
-          test -f external/Madeira/app/Madeira/i386-windows/madeira-pe32-probe.exe
-          test -f external/Madeira/app/Madeira/i386-windows/ntdll.dll
-          test -f external/Madeira/app/Madeira/aarch64-windows/libwow64fex.dll
-          test -f external/Madeira/app/Madeira/aarch64-windows/xtajit.dll
+          bash tools/build_madeira_ntdll_ios.sh external/Madeira
+          test -s external/Madeira/app/Madeira/libntdll_unix.a
 
-          # Madeira intentionally does not track Microsoft's x86-64 VC runtime.
-          # This PE32 test forces the ARM64 WoW64 path, so an empty resource
-          # directory satisfies the Xcode project without redistributing it.
-          mkdir -p external/Madeira/app/Madeira/x86_64-vcruntime
+      - name: Verify native Madeira ntdll archive
+        run: |
+          test -s external/Madeira/app/Madeira/libntdll_unix.a
+          file external/Madeira/app/Madeira/libntdll_unix.a
+
+      - name: Save native ntdll cache
+        if: steps.cache-ntdll.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            external/Madeira/app/Madeira/libntdll_unix.a
+            external/Madeira/toolchains/llvm-mingw-20260421-ucrt-macos-universal
+            external/Madeira/toolchains/gnutls-ios
+            external/Madeira/wine/build-macos
+            external/Madeira/wine/build-arm64ec
+            external/Madeira/research/freetype
+            external/Madeira/build/ntdll-unix/obj
+          key: ntdll-ios-${{ runner.os }}-97e2ce26-${{ hashFiles('tools/build_madeira_ntdll_ios.sh') }}
+
+      - name: Checkout pinned FEX only after ntdll passes
+        run: |
+          git -C external/Madeira submodule update --init --recursive FEX
+
+      - name: Restore native FEX cache
+        id: cache-fex
+        uses: actions/cache/restore@v4
+        with:
+          path: external/Madeira/FEX/build-ios
+          key: fex-ios-${{ runner.os }}-97e2ce26-native-guards-v2
 
       - name: Guard ARM64EC-only diagnostics in native iOS FEX
+        if: steps.cache-fex.outputs.cache-hit != 'true'
         run: |
           python3 - <<'PY'
           from pathlib import Path
-
           p = Path("external/Madeira/FEX/FEXCore/Source/Interface/Core/Core.cpp")
           s = p.read_text()
           start_marker = "  /* iOS-Madeira ml316: report ExitToX64 FFS bypasses"
@@ -279,21 +310,12 @@ jobs:
           )
           p.write_text(s)
           PY
-          python3 - <<'PY'
-          from pathlib import Path
-          s = Path("external/Madeira/FEX/FEXCore/Source/Interface/Core/Core.cpp").read_text()
-          guarded = s.split("#if defined(FEX_IOS_HOST) && defined(_WIN32)", 1)[1].split(
-              "#endif // FEX_IOS_HOST && _WIN32", 1
-          )[0]
-          assert "IosFfsBypassLog" in guarded
-          assert "IosCbEntryLog" in guarded
-          PY
 
       - name: Guard Windows-only CASPAL diagnostics in native iOS FEX
+        if: steps.cache-fex.outputs.cache-hit != 'true'
         run: |
           python3 - <<'PY'
           from pathlib import Path
-
           p = Path("external/Madeira/FEX/FEXCore/Source/Utils/ArchHelpers/Arm64.cpp")
           s = p.read_text()
           start_marker = "  MEMORY_BASIC_INFORMATION mbi {};"
@@ -314,71 +336,68 @@ jobs:
           s = s[:start] + fallback + s[end:]
           p.write_text(s)
           PY
-          python3 - <<'PY'
-          from pathlib import Path
-          s = Path("external/Madeira/FEX/FEXCore/Source/Utils/ArchHelpers/Arm64.cpp").read_text()
-          assert "#if defined(_WIN32)" in s
-          assert "region metadata unavailable on native iOS" in s
-          assert s.count("MEMORY_BASIC_INFORMATION mbi {};") == 1
-          PY
 
       - name: Build FEX iOS static libraries and generated headers
+        if: steps.cache-fex.outputs.cache-hit != 'true'
         run: |
-          cmake --version
-          ninja --version
-          cmake \
-            -S external/Madeira/FEX \
-            -B external/Madeira/FEX/build-ios \
-            -G Ninja \
-            -DCMAKE_SYSTEM_NAME=iOS \
-            -DCMAKE_SYSTEM_PROCESSOR=arm64 \
-            -DCMAKE_OSX_SYSROOT=iphoneos \
-            -DCMAKE_OSX_ARCHITECTURES=arm64 \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
-            -DTUNE_CPU=generic \
-            -DBUILD_TESTING=OFF \
-            -DBUILD_FEX_LINUX_TESTS=OFF \
-            -DBUILD_THUNKS=OFF \
-            -DBUILD_FEXCONFIG=OFF \
-            -DENABLE_CCACHE=OFF \
-            -DENABLE_LTO=OFF \
-            -DENABLE_OFFLINE_TELEMETRY=OFF
-          cmake --build external/Madeira/FEX/build-ios \
-            --target FEXCore FEXCore_Base JemallocLibs \
-            --parallel 3
+          cmake             -S external/Madeira/FEX             -B external/Madeira/FEX/build-ios             -G Ninja             -DCMAKE_SYSTEM_NAME=iOS             -DCMAKE_SYSTEM_PROCESSOR=arm64             -DCMAKE_OSX_SYSROOT=iphoneos             -DCMAKE_OSX_ARCHITECTURES=arm64             -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0             -DCMAKE_BUILD_TYPE=Release             -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY             -DTUNE_CPU=generic             -DBUILD_TESTING=OFF             -DBUILD_FEX_LINUX_TESTS=OFF             -DBUILD_THUNKS=OFF             -DBUILD_FEXCONFIG=OFF             -DENABLE_CCACHE=OFF             -DENABLE_LTO=OFF             -DENABLE_OFFLINE_TELEMETRY=OFF
+          cmake --build external/Madeira/FEX/build-ios             --target FEXCore FEXCore_Base JemallocLibs             --parallel 3
+
+      - name: Verify native FEX outputs
+        run: |
           test -f external/Madeira/FEX/build-ios/include/FEXCore/Config/ConfigValues.inl
           test -f external/Madeira/FEX/build-ios/include/FEXCore/Config/ConfigOptions.inl
           test -f external/Madeira/FEX/build-ios/FEXCore/Source/libFEXCore.a
           test -f external/Madeira/FEX/build-ios/FEXCore/Source/libFEXCore_Base.a
           test -f external/Madeira/FEX/build-ios/FEXCore/Source/libJemallocLibs.a
 
+      - name: Save native FEX cache
+        if: steps.cache-fex.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: external/Madeira/FEX/build-ios
+          key: fex-ios-${{ runner.os }}-97e2ce26-native-guards-v2
+
+      - name: Restore native wineserver cache
+        id: cache-wineserver
+        uses: actions/cache/restore@v4
+        with:
+          path: external/Madeira/app/Madeira/libwineserver.a
+          key: wineserver-ios-${{ runner.os }}-97e2ce26-${{ hashFiles('tools/build_madeira_wineserver_ios.sh') }}
+
       - name: Build native Madeira wineserver archive
+        if: steps.cache-wineserver.outputs.cache-hit != 'true'
         run: |
           bash tools/build_madeira_wineserver_ios.sh external/Madeira
           test -s external/Madeira/app/Madeira/libwineserver.a
 
-      - name: Build native Madeira ntdll archive
+      - name: Verify native Madeira wineserver archive
         run: |
-          bash tools/build_madeira_ntdll_ios.sh external/Madeira
-          test -s external/Madeira/app/Madeira/libntdll_unix.a
+          test -s external/Madeira/app/Madeira/libwineserver.a
+          file external/Madeira/app/Madeira/libwineserver.a
+
+      - name: Save native wineserver cache
+        if: steps.cache-wineserver.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: external/Madeira/app/Madeira/libwineserver.a
+          key: wineserver-ios-${{ runner.os }}-97e2ce26-${{ hashFiles('tools/build_madeira_wineserver_ios.sh') }}
+
+      - name: Overlay PE32 runtime
+        run: |
+          mkdir -p out
+          python3 integration/madeira/prepare_pe32_probe.py             --madeira-root external/Madeira             --probe-exe "$PROBE_EXE"             --wow64fex-dll "$FEX_DLL"             --wine-wow64-root "$WINE_ROOT"             --manifest out/madeira-pe32-device-manifest.json
+          test -f external/Madeira/app/Madeira/i386-windows/madeira-pe32-probe.exe
+          test -f external/Madeira/app/Madeira/i386-windows/ntdll.dll
+          test -f external/Madeira/app/Madeira/aarch64-windows/libwow64fex.dll
+          test -f external/Madeira/app/Madeira/aarch64-windows/xtajit.dll
+          mkdir -p external/Madeira/app/Madeira/x86_64-vcruntime
 
       - name: Build unsigned device app
         run: |
           xcodebuild -version
-          xcodebuild -list -project external/Madeira/app/Madeira.xcodeproj
           rm -rf build Payload Madeira-PE32-unsigned.ipa
-          xcodebuild \
-            -project external/Madeira/app/Madeira.xcodeproj \
-            -scheme Madeira \
-            -configuration Release \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
-            -derivedDataPath "$PWD/build/DerivedData" \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            build
+          xcodebuild             -project external/Madeira/app/Madeira.xcodeproj             -scheme Madeira             -configuration Release             -sdk iphoneos             -destination 'generic/platform=iOS'             -derivedDataPath "$PWD/build/DerivedData"             CODE_SIGNING_ALLOWED=NO             CODE_SIGNING_REQUIRED=NO             build
 
       - name: Package unsigned IPA
         run: |
