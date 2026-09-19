@@ -11,6 +11,34 @@ if foundation not in s:
 marker = "static fex_log_callback_t g_fex_log_callback = nullptr;"
 helper = r'''static fex_log_callback_t g_fex_log_callback = nullptr;
 
+static int g_fex_checkpoint_fd = -1;
+
+static void fex_fatal_signal_handler(int sig) {
+    const char *line = "FATAL_SIGNAL_UNKNOWN\n";
+    size_t len = sizeof("FATAL_SIGNAL_UNKNOWN\n") - 1;
+    switch (sig) {
+        case SIGSEGV: line = "FATAL_SIGNAL_SIGSEGV\n"; len = sizeof("FATAL_SIGNAL_SIGSEGV\n") - 1; break;
+        case SIGBUS:  line = "FATAL_SIGNAL_SIGBUS\n";  len = sizeof("FATAL_SIGNAL_SIGBUS\n") - 1; break;
+        case SIGILL:  line = "FATAL_SIGNAL_SIGILL\n";  len = sizeof("FATAL_SIGNAL_SIGILL\n") - 1; break;
+        case SIGABRT: line = "FATAL_SIGNAL_SIGABRT\n"; len = sizeof("FATAL_SIGNAL_SIGABRT\n") - 1; break;
+        case SIGTRAP: line = "FATAL_SIGNAL_SIGTRAP\n"; len = sizeof("FATAL_SIGNAL_SIGTRAP\n") - 1; break;
+    }
+    if (g_fex_checkpoint_fd >= 0) {
+        (void)write(g_fex_checkpoint_fd, line, len);
+        (void)fsync(g_fex_checkpoint_fd);
+    }
+    _exit(128 + sig);
+}
+
+static void fex_install_fatal_signal_handlers(void) {
+    struct sigaction action = {};
+    action.sa_handler = fex_fatal_signal_handler;
+    sigemptyset(&action.sa_mask);
+    action.sa_flags = SA_RESETHAND;
+    const int signals[] = {SIGSEGV, SIGBUS, SIGILL, SIGABRT, SIGTRAP};
+    for (int sig : signals) (void)sigaction(sig, &action, nullptr);
+}
+
 static void fex_crash_checkpoint(const char *stage) {
     @autoreleasepool {
         NSArray<NSURL *> *urls = [[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory
@@ -18,6 +46,11 @@ static void fex_crash_checkpoint(const char *stage) {
         NSURL *docs = urls.firstObject;
         if (!docs) return;
         NSURL *url = [docs URLByAppendingPathComponent:@"madeira-crash-checkpoints.txt"];
+        if (g_fex_checkpoint_fd < 0) {
+            g_fex_checkpoint_fd = open(url.fileSystemRepresentation,
+                                       O_CREAT | O_WRONLY | O_APPEND, 0600);
+            fex_install_fatal_signal_handlers();
+        }
         NSString *line = [NSString stringWithFormat:@"%.3f | pid=%d | %@\n",
                           [[NSDate date] timeIntervalSince1970],
                           getpid(),
@@ -71,7 +104,7 @@ for old, new in replacements:
 include = '#include <signal.h>'
 if include not in s:
     raise SystemExit("signal include missing")
-s = s.replace(include, include + '\n#include <unistd.h>', 1)
+s = s.replace(include, include + '\n#include <fcntl.h>\n#include <unistd.h>', 1)
 
 p.write_text(s)
 print("Installed persistent FEX runtime checkpoints")
