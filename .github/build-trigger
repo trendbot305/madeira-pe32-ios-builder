@@ -34,3 +34,4 @@ run 35: complete win32u shell IDL header closure
 run 36: generate D3D11/D3D12 headers for win32u d3dkmt
 run 37: complete D3D debug-layer header closure
 run 38: replace macOS LLVM with cached iOS LLVM for DXMT
+run 39: build LLVM libraries only for iOS DXMT
