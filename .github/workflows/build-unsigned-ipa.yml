@@ -267,11 +267,14 @@ jobs:
           reporter = s[start:end]
           if "IosFfsBypassLog" not in reporter or "IosCbEntryLog" not in reporter:
               raise SystemExit("Unexpected FEX reporter block")
+          nl = chr(10)
           s = (
               s[:start]
-              + "#if defined(FEX_IOS_HOST) && defined(_WIN32)\\n"
+              + "#if defined(FEX_IOS_HOST) && defined(_WIN32)"
+              + nl
               + reporter
-              + "#endif // FEX_IOS_HOST && _WIN32\\n\\n"
+              + "#endif // FEX_IOS_HOST && _WIN32"
+              + nl + nl
               + s[end:]
           )
           p.write_text(s)
