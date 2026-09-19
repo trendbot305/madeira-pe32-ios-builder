@@ -70,6 +70,12 @@ jobs:
                   "#endif // FEX_IOS_HOST\n\n  /* iOS-Madeira: refuse to compile obviously-invalid guest RIPs.",
                   1,
               )
+          # The FFS/callback diagnostic arrays are defined by the Windows
+          # ARM64EC frontend only. Native iOS FEXCore must not reference them.
+          s = s.replace(
+              "#ifdef FEX_IOS_HOST\n  /* iOS-Madeira ml316: report ExitToX64",
+              "#if defined(FEX_IOS_HOST) && defined(_WIN32)\n  /* iOS-Madeira ml316: report ExitToX64",
+          )
           s = s.replace(
               "uint64_t now = (uint64_t)time(NULL);",
               "uint64_t now = 0; /* standalone WoW64 build: no CRT time() */",
