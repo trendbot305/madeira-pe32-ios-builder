@@ -234,17 +234,24 @@ jobs:
           git -C external/Madeira checkout 97e2ce26e6dc9e4a38976f3b5deb9272d64558eb
           git -C external/Madeira submodule update --init --recursive wine
 
-      - name: Restore native ntdll cache
-        id: cache-ntdll
+      - name: Restore ntdll dependency cache
+        id: cache-ntdll-deps
         uses: actions/cache/restore@v4
         with:
           path: |
-            external/Madeira/app/Madeira/libntdll_unix.a
             external/Madeira/toolchains/llvm-mingw-20260421-ucrt-macos-universal
             external/Madeira/toolchains/gnutls-ios
             external/Madeira/wine/build-macos
             external/Madeira/wine/build-arm64ec
             external/Madeira/research/freetype
+          key: ntdll-deps-${{ runner.os }}-wine7817e220-gnutls389-ft2133-v1
+
+      - name: Restore compiled native ntdll cache
+        id: cache-ntdll
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            external/Madeira/app/Madeira/libntdll_unix.a
             external/Madeira/build/ntdll-unix/obj
           key: ntdll-ios-${{ runner.os }}-97e2ce26-${{ hashFiles('tools/build_madeira_ntdll_ios.sh') }}
 
@@ -254,22 +261,43 @@ jobs:
           bash tools/build_madeira_ntdll_ios.sh external/Madeira
           test -s external/Madeira/app/Madeira/libntdll_unix.a
 
-      - name: Verify native Madeira ntdll archive
+      - name: Check ntdll dependency cache readiness
+        id: ntdll-deps-ready
+        if: always()
         run: |
-          test -s external/Madeira/app/Madeira/libntdll_unix.a
-          file external/Madeira/app/Madeira/libntdll_unix.a
+          ready=true
+          test -x external/Madeira/toolchains/llvm-mingw-20260421-ucrt-macos-universal/bin/aarch64-w64-mingw32-clang || ready=false
+          test -s external/Madeira/toolchains/gnutls-ios/lib/libgnutls.a || ready=false
+          test -f external/Madeira/toolchains/gnutls-ios/include/gnutls/gnutls.h || ready=false
+          test -f external/Madeira/wine/build-macos/include/config.h || ready=false
+          test -f external/Madeira/wine/build-macos/include/d2d1.h || ready=false
+          test -f external/Madeira/wine/build-macos/include/dwrite_3.h || ready=false
+          test -f external/Madeira/research/freetype/include/ft2build.h || ready=false
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
 
-      - name: Save native ntdll cache
-        if: steps.cache-ntdll.outputs.cache-hit != 'true'
+      - name: Save ntdll dependency cache
+        if: always() && steps.cache-ntdll-deps.outputs.cache-hit != 'true' && steps.ntdll-deps-ready.outputs.ready == 'true'
         uses: actions/cache/save@v4
         with:
           path: |
-            external/Madeira/app/Madeira/libntdll_unix.a
             external/Madeira/toolchains/llvm-mingw-20260421-ucrt-macos-universal
             external/Madeira/toolchains/gnutls-ios
             external/Madeira/wine/build-macos
             external/Madeira/wine/build-arm64ec
             external/Madeira/research/freetype
+          key: ntdll-deps-${{ runner.os }}-wine7817e220-gnutls389-ft2133-v1
+
+      - name: Verify native Madeira ntdll archive
+        run: |
+          test -s external/Madeira/app/Madeira/libntdll_unix.a
+          file external/Madeira/app/Madeira/libntdll_unix.a
+
+      - name: Save compiled native ntdll cache
+        if: steps.cache-ntdll.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            external/Madeira/app/Madeira/libntdll_unix.a
             external/Madeira/build/ntdll-unix/obj
           key: ntdll-ios-${{ runner.os }}-97e2ce26-${{ hashFiles('tools/build_madeira_ntdll_ios.sh') }}
 
