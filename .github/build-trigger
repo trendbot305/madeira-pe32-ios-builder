@@ -30,3 +30,4 @@ run 31: WiniOS proven DXMT bootstrap
 run 32: fix macOS bash LLVM archive collection
 run 33: build native win32u and audit final linker inputs
 run 34: generate win32u shell COM headers before compile
+run 35: complete win32u shell IDL header closure
