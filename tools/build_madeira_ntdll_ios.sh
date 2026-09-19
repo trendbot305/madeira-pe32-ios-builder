@@ -60,27 +60,44 @@ if [ "$NEED_WINE_GEN" = true ]; then
   fi
   test -f "$WINE_BUILD/include/config.h"
 
-  echo "=== Preparing COM + Direct2D + DirectWrite generated headers ==="
-  (
-    cd "$WINE_BUILD"
-    make -j2 \
-      include/wtypesbase.h \
-      include/wtypes.h \
-      include/unknwn.h \
-      include/objidlbase.h \
-      include/objidl.h \
-      include/oaidl.h \
-      include/propidl.h \
-      include/dcommon.h \
-      include/d2d1.h \
-      include/d2d1_1.h \
-      include/d2d1_2.h \
-      include/d2d1_3.h \
-      include/dwrite.h \
-      include/dwrite_1.h \
-      include/dwrite_2.h \
-      include/dwrite_3.h
-  )
+  if [ -x "$WINE_BUILD/tools/widl/widl" ]; then
+    echo "=== Generating missing COM/D2D/DWrite headers directly with cached widl ==="
+    WIDL="$WINE_BUILD/tools/widl/widl"
+    mkdir -p "$WINE_BUILD/include"
+    for hdr in \
+      wtypesbase wtypes unknwn objidlbase objidl oaidl propidl \
+      dcommon d2d1 d2d1_1 d2d1_2 d2d1_3 \
+      dwrite dwrite_1 dwrite_2 dwrite_3; do
+      if [ ! -f "$WINE_BUILD/include/$hdr.h" ]; then
+        echo "widl: $hdr.idl -> $hdr.h"
+        "$WIDL" -h -o "$WINE_BUILD/include/$hdr.h" \
+          -I"$WINE_SRC/include" -I"$WINE_BUILD/include" \
+          "$WINE_SRC/include/$hdr.idl"
+      fi
+    done
+  else
+    echo "=== Preparing COM + Direct2D + DirectWrite generated headers with make ==="
+    (
+      cd "$WINE_BUILD"
+      make -j2 \
+        include/wtypesbase.h \
+        include/wtypes.h \
+        include/unknwn.h \
+        include/objidlbase.h \
+        include/objidl.h \
+        include/oaidl.h \
+        include/propidl.h \
+        include/dcommon.h \
+        include/d2d1.h \
+        include/d2d1_1.h \
+        include/d2d1_2.h \
+        include/d2d1_3.h \
+        include/dwrite.h \
+        include/dwrite_1.h \
+        include/dwrite_2.h \
+        include/dwrite_3.h
+    )
+  fi
 else
   echo "=== Reusing cached Wine generated headers ==="
 fi
