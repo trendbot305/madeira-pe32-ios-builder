@@ -204,7 +204,7 @@ jobs:
           # SwiftUI/LogStore so the last completed native checkpoint survives
           # an abrupt LiveContainer/process crash.
           marker = "static fex_log_callback_t g_fex_log_callback = nullptr;"
-          helper = r'''static fex_log_callback_t g_fex_log_callback = nullptr;
+          helper = r\"\"\"static fex_log_callback_t g_fex_log_callback = nullptr;
 
 static void fex_crash_checkpoint(const char *stage) {
     @autoreleasepool {
@@ -229,7 +229,7 @@ static void fex_crash_checkpoint(const char *stage) {
             [h closeFile];
         }
     }
-}'''
+}\"\"\"
           if marker not in s:
               raise SystemExit("FEX log marker not found")
           s = s.replace(marker, helper, 1)
