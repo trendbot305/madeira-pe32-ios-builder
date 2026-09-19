@@ -5,6 +5,9 @@ root = Path(sys.argv[1])
 p = root / "app/Madeira/FEXBridge.mm"
 s = p.read_text()
 
+foundation = '#import <Foundation/Foundation.h>'
+if foundation not in s:
+    s = foundation + '\\n' + s
 marker = "static fex_log_callback_t g_fex_log_callback = nullptr;"
 helper = r'''static fex_log_callback_t g_fex_log_callback = nullptr;
 
