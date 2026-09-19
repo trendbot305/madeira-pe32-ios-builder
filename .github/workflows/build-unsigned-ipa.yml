@@ -435,29 +435,52 @@ jobs:
           path: external/Madeira/app/Madeira/libwineserver.a
           key: wineserver-ios-${{ runner.os }}-97e2ce26-${{ hashFiles('tools/build_madeira_wineserver_ios.sh') }}
 
+      - name: Restore LLVM 15 iOS cache
+        id: cache-llvm-ios
+        uses: actions/cache/restore@v4
+        with:
+          path: external/Madeira/toolchains/llvm-ios-build/lib
+          key: llvm15-ios-${{ runner.os }}-15.0.7-arm64-v1
+
+      - name: Build LLVM 15 static libraries for iOS
+        if: steps.cache-llvm-ios.outputs.cache-hit != 'true'
+        run: |
+          bash tools/build_llvm15_ios_for_dxmt.sh external/Madeira
+          test -s external/Madeira/toolchains/llvm-ios-build/lib/libLLVMCore.a
+
+      - name: Verify LLVM 15 iOS static libraries
+        run: |
+          test -s external/Madeira/toolchains/llvm-ios-build/lib/libLLVMCore.a
+          test -s external/Madeira/toolchains/llvm-ios-build/lib/libLLVMSupport.a
+          echo "LLVM iOS archives: $(find external/Madeira/toolchains/llvm-ios-build/lib -type f -name 'libLLVM*.a' | wc -l | tr -d ' ')"
+
+      - name: Save LLVM 15 iOS cache
+        if: steps.cache-llvm-ios.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: external/Madeira/toolchains/llvm-ios-build/lib
+          key: llvm15-ios-${{ runner.os }}-15.0.7-arm64-v1
+
       - name: Restore native DXMT cache
         id: cache-dxmt
         uses: actions/cache/restore@v4
         with:
           path: external/Madeira/app/Madeira/libdxmt_combined.a
-          key: dxmt-ios-winios-7be78cf3-llvm15-v1
+          key: dxmt-ios-winios-7be78cf3-llvm15-ios-v1
 
-      - name: Bootstrap DXMT from proven WiniOS iOS archive
+      - name: Assemble DXMT with iOS LLVM archives
         if: steps.cache-dxmt.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          echo "Reusing WiniOS's known-good iOS DXMT unix archive at pinned commit 7be78cf3."
-          brew list llvm@15 >/dev/null 2>&1 || brew install llvm@15
+          echo "Combining WiniOS iOS DXMT objects with LLVM 15 built for iOS arm64."
           curl --fail --location --retry 3 \
             -o /tmp/libdxmt_unix.a \
             https://raw.githubusercontent.com/yanyantukebo1224/WiniOS/7be78cf3b6ad9fefbe5a98bb037785236e7dd36c/app/libdxmt_unix.a
           test -s /tmp/libdxmt_unix.a
-          file /tmp/libdxmt_unix.a
-          LLVM15_DIR="$(brew --prefix llvm@15)"
-          LLVM_LIST=/tmp/llvm15-static-libs.txt
-          find "$LLVM15_DIR/lib" -type f -name 'libLLVM*.a' -print | sort > "$LLVM_LIST"
+          LLVM_LIST=/tmp/llvm15-ios-static-libs.txt
+          find external/Madeira/toolchains/llvm-ios-build/lib -type f -name 'libLLVM*.a' -print | sort > "$LLVM_LIST"
           test -s "$LLVM_LIST"
-          echo "LLVM static archives: $(wc -l < "$LLVM_LIST" | tr -d ' ')"
+          echo "LLVM iOS static archives: $(wc -l < "$LLVM_LIST" | tr -d ' ')"
           xargs xcrun -sdk iphoneos libtool -static \
             -o external/Madeira/app/Madeira/libdxmt_combined.a \
             /tmp/libdxmt_unix.a < "$LLVM_LIST"
@@ -474,7 +497,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: external/Madeira/app/Madeira/libdxmt_combined.a
-          key: dxmt-ios-winios-7be78cf3-llvm15-v1
+          key: dxmt-ios-winios-7be78cf3-llvm15-ios-v1
 
       - name: Native cache reuse summary
         run: |
@@ -484,6 +507,7 @@ jobs:
           echo "win32u     : ${{ steps.cache-win32u.outputs.cache-hit }}"
           echo "FEX        : ${{ steps.cache-fex.outputs.cache-hit }}"
           echo "wineserver : ${{ steps.cache-wineserver.outputs.cache-hit }}"
+          echo "LLVM iOS   : ${{ steps.cache-llvm-ios.outputs.cache-hit }}"
           echo "DXMT       : ${{ steps.cache-dxmt.outputs.cache-hit }}"
 
       - name: Download FEX and probe
@@ -586,7 +610,7 @@ jobs:
         run: |
           xcodebuild -version
           rm -rf build Payload Madeira-PE32-unsigned.ipa
-          xcodebuild             -project external/Madeira/app/Madeira.xcodeproj             -scheme Madeira             -configuration Release             -sdk iphoneos             -destination 'generic/platform=iOS'             -derivedDataPath "$PWD/build/DerivedData"             CODE_SIGNING_ALLOWED=NO             CODE_SIGNING_REQUIRED=NO             build
+          xcodebuild             -project external/Madeira/app/Madeira.xcodeproj             -scheme Madeira             -configuration Release             -sdk iphoneos             -destination 'generic/platform=iOS'             -derivedDataPath "$PWD/build/DerivedData"             CODE_SIGNING_ALLOWED=NO             CODE_SIGNING_REQUIRED=NO             IPHONEOS_DEPLOYMENT_TARGET=18.0             build
 
       - name: Package unsigned IPA
         run: |
