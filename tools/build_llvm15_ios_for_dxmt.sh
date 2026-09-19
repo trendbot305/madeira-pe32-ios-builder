@@ -59,8 +59,11 @@ CLANGXX="$(xcrun --sdk iphoneos --find clang++)"
 echo "=== Configure LLVM ${LLVM_VERSION} static libraries for iOS arm64 ==="
 cmake -S "$SRC_ROOT/llvm" -B "$BUILD_ROOT" -G Ninja   -DCMAKE_SYSTEM_NAME=iOS   -DCMAKE_OSX_SYSROOT="$SDK"   -DCMAKE_OSX_ARCHITECTURES=arm64   -DCMAKE_OSX_DEPLOYMENT_TARGET=18.0   -DCMAKE_BUILD_TYPE=Release   -DCMAKE_C_COMPILER="$CLANG"   -DCMAKE_CXX_COMPILER="$CLANGXX"   -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY   -DLLVM_TABLEGEN="$HOST_TBLGEN"   -DLLVM_TARGETS_TO_BUILD=AArch64   -DLLVM_BUILD_UTILS=OFF   -DLLVM_INCLUDE_UTILS=OFF   -DLLVM_BUILD_TOOLS=OFF   -DLLVM_INCLUDE_TOOLS=OFF   -DLLVM_INCLUDE_TESTS=OFF   -DLLVM_INCLUDE_EXAMPLES=OFF   -DLLVM_INCLUDE_BENCHMARKS=OFF   -DLLVM_ENABLE_BINDINGS=OFF   -DLLVM_ENABLE_TERMINFO=OFF   -DLLVM_ENABLE_LIBXML2=OFF   -DLLVM_ENABLE_ZLIB=OFF   -DLLVM_ENABLE_ZSTD=OFF   -DLLVM_ENABLE_LIBEDIT=OFF   -DLLVM_ENABLE_BACKTRACES=OFF   -DLLVM_ENABLE_PIC=ON   -DBUILD_SHARED_LIBS=OFF
 
-echo "=== Build LLVM iOS static libraries ==="
-cmake --build "$BUILD_ROOT" --parallel 3
+echo "=== Build LLVM iOS static libraries only ==="
+# Do not build the default ALL target here. It also tries to link target-side
+# utilities such as llvm-tblgen, which is a host tool and pulls -lrt on iOS.
+# LLVM provides an aggregate llvm-libraries target specifically for this case.
+cmake --build "$BUILD_ROOT" --target llvm-libraries --parallel 3
 
 echo "=== Collect LLVM iOS archives ==="
 rm -rf "$OUT_ROOT"
