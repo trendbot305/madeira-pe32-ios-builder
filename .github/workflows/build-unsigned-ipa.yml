@@ -1,0 +1,270 @@
+name: Build unsigned Madeira PE32 IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: madeira-pe32-public-build
+  cancel-in-progress: true
+
+jobs:
+  fex-and-probe:
+    name: Build FEX runtime and PE32 probe
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout builder
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Checkout pinned Madeira recursively
+        uses: actions/checkout@v4
+        with:
+          repository: willfaust/Madeira
+          ref: 97e2ce26e6dc9e4a38976f3b5deb9272d64558eb
+          path: external/Madeira
+          submodules: recursive
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build xz-utils python3 file
+
+      - name: Download verified llvm-mingw
+        run: |
+          mkdir -p toolchains
+          curl -L --fail --retry 3 \
+            https://github.com/mstorsjo/llvm-mingw/releases/download/20260421/llvm-mingw-20260421-ucrt-ubuntu-22.04-x86_64.tar.xz \
+            -o /tmp/llvm-mingw.tar.xz
+          echo "f8b8cce779affeab47bcaec6ce6e9e768b166094a366123ef64b2d0b389cc121  /tmp/llvm-mingw.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/llvm-mingw.tar.xz -C toolchains
+          TOOLCHAIN_DIR="$(find "$PWD/toolchains" -maxdepth 1 -type d -name 'llvm-mingw-*' | head -1)"
+          test -n "$TOOLCHAIN_DIR"
+          echo "$TOOLCHAIN_DIR/bin" >> "$GITHUB_PATH"
+
+      - name: Patch pinned FEX diagnostics for standalone WoW64
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("external/Madeira/FEX/FEXCore/Source/Interface/Core/Core.cpp")
+          s = p.read_text()
+          marker = "#ifdef FEX_IOS_HOST\n  /* iOS-Madeira ml316: report ExitToX64"
+          if marker not in s:
+              s = s.replace(
+                  "  /* iOS-Madeira ml316: report ExitToX64",
+                  "#ifdef FEX_IOS_HOST\n  /* iOS-Madeira ml316: report ExitToX64",
+                  1,
+              )
+              s = s.replace(
+                  "  /* iOS-Madeira: refuse to compile obviously-invalid guest RIPs.",
+                  "#endif // FEX_IOS_HOST\n\n  /* iOS-Madeira: refuse to compile obviously-invalid guest RIPs.",
+                  1,
+              )
+          s = s.replace(
+              "uint64_t now = (uint64_t)time(NULL);",
+              "uint64_t now = 0; /* standalone WoW64 build: no CRT time() */",
+          )
+          p.write_text(s)
+          PY
+
+      - name: Configure and build FEX WoW64 runtime
+        run: |
+          cmake \
+            -S external/Madeira/FEX \
+            -B external/Madeira/FEX/build-wow64 \
+            -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$PWD/external/Madeira/FEX/Data/CMake/toolchain_mingw.cmake" \
+            -DMINGW_TRIPLE=aarch64-w64-mingw32 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DTUNE_CPU=generic \
+            -DBUILD_TESTING=OFF \
+            -DENABLE_CCACHE=OFF \
+            -DENABLE_LTO=OFF \
+            -DENABLE_OFFLINE_TELEMETRY=OFF \
+            -DBUILD_FEX_LINUX_TESTS=OFF \
+            -DBUILD_THUNKS=OFF \
+            -DBUILD_FEXCONFIG=OFF
+          cmake --build external/Madeira/FEX/build-wow64 --target wow64fex --parallel 2
+
+      - name: Build and characterize synthetic PE32 guest
+        run: |
+          mkdir -p out/runtime
+          i686-w64-mingw32-clang -Os -s -nostdlib \
+            -Wl,--subsystem,console \
+            -Wl,--entry,_pe32_entry@0 \
+            integration/madeira/pe32_probe.c -lkernel32 \
+            -o out/runtime/madeira-pe32-probe.exe
+          python3 tools/pe_characterizer.py \
+            out/runtime/madeira-pe32-probe.exe \
+            -o out/runtime/madeira-pe32-probe.json
+          python3 - <<'PY'
+          import json
+          r = json.load(open("out/runtime/madeira-pe32-probe.json"))
+          assert r["pe"]["machine"] == "x86", r["pe"]
+          assert r["pe"]["format"] == "PE32", r["pe"]
+          dlls = {x["dll"].lower() for x in r["imports"]}
+          assert dlls == {"kernel32.dll"}, dlls
+          PY
+
+      - name: Collect and verify FEX runtime
+        run: |
+          DLL="$(find external/Madeira/FEX/build-wow64 -type f -iname '*wow64fex*.dll' | head -1)"
+          test -n "$DLL"
+          cp "$DLL" out/runtime/libwow64fex.dll
+          file out/runtime/libwow64fex.dll
+          aarch64-w64-mingw32-objdump -p out/runtime/libwow64fex.dll > out/runtime/libwow64fex-objdump.txt
+          for export in \
+            BTCpuGetBopCode BTCpuGetContext BTCpuIsProcessorFeaturePresent \
+            BTCpuProcessInit BTCpuThreadInit BTCpuResetToConsistentState \
+            BTCpuSetContext BTCpuSimulate BTCpuFlushInstructionCache2 \
+            BTCpuFlushInstructionCacheHeavy BTCpuNotifyMapViewOfSection \
+            BTCpuNotifyMemoryAlloc BTCpuNotifyMemoryDirty BTCpuNotifyMemoryFree \
+            BTCpuNotifyMemoryProtect BTCpuNotifyReadFile \
+            BTCpuNotifyUnmapViewOfSection BTCpuUpdateProcessorInformation \
+            BTCpuProcessTerm BTCpuThreadTerm __wine_get_unix_opcode; do
+            grep -q "$export" out/runtime/libwow64fex-objdump.txt
+          done
+          sha256sum out/runtime/libwow64fex.dll out/runtime/madeira-pe32-probe.exe \
+            > out/runtime/SHA256SUMS
+
+      - name: Upload FEX and probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: fex-and-pe32-probe
+          path: out/runtime
+          if-no-files-found: error
+          retention-days: 7
+
+  wine-modules:
+    name: Build minimal Wine WoW64 modules
+    runs-on: windows-latest
+    steps:
+      - name: Checkout builder
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Build pinned Wine module set
+        shell: pwsh
+        run: ./tools/build_wine_i386_windows.ps1
+
+      - name: Upload Wine modules
+        uses: actions/upload-artifact@v4
+        with:
+          name: wine-wow64-modules
+          path: out/wine-wow64
+          if-no-files-found: error
+          retention-days: 7
+
+  device-ipa:
+    name: Build unsigned iPhone IPA
+    needs:
+      - fex-and-probe
+      - wine-modules
+    runs-on: macos-latest
+    steps:
+      - name: Checkout builder
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Download FEX and probe
+        uses: actions/download-artifact@v4
+        with:
+          name: fex-and-pe32-probe
+          path: kit/fex
+
+      - name: Download Wine modules
+        uses: actions/download-artifact@v4
+        with:
+          name: wine-wow64-modules
+          path: kit/wine
+
+      - name: Locate and verify inputs
+        run: |
+          PROBE_EXE="$(find kit/fex -type f -name madeira-pe32-probe.exe | head -1)"
+          FEX_DLL="$(find kit/fex -type f -name libwow64fex.dll | head -1)"
+          WINE_MANIFEST="$(find kit/wine -type f -name manifest.json | head -1)"
+          test -n "$PROBE_EXE"
+          test -n "$FEX_DLL"
+          test -n "$WINE_MANIFEST"
+          WINE_ROOT="$(dirname "$WINE_MANIFEST")"
+          echo "PROBE_EXE=$PROBE_EXE" >> "$GITHUB_ENV"
+          echo "FEX_DLL=$FEX_DLL" >> "$GITHUB_ENV"
+          echo "WINE_ROOT=$WINE_ROOT" >> "$GITHUB_ENV"
+          python3 - "$WINE_MANIFEST" <<'PY'
+          import json, sys
+          manifest = json.load(open(sys.argv[1]))
+          expected = {
+              ("i386-windows", "ntdll.dll", "x86"),
+              ("i386-windows", "kernelbase.dll", "x86"),
+              ("i386-windows", "kernel32.dll", "x86"),
+              ("aarch64-windows", "wow64.dll", "arm64"),
+              ("aarch64-windows", "wow64win.dll", "arm64"),
+          }
+          actual = {(x["architecture"], x["name"], x["machine"]) for x in manifest}
+          assert actual == expected, (actual, expected)
+          PY
+
+      - name: Checkout pinned Madeira
+        run: |
+          git clone --recurse-submodules https://github.com/willfaust/Madeira.git external/Madeira
+          git -C external/Madeira checkout 97e2ce26e6dc9e4a38976f3b5deb9272d64558eb
+          git -C external/Madeira submodule update --init --recursive
+
+      - name: Overlay PE32 runtime
+        run: |
+          mkdir -p out
+          python3 integration/madeira/prepare_pe32_probe.py \
+            --madeira-root external/Madeira \
+            --probe-exe "$PROBE_EXE" \
+            --wow64fex-dll "$FEX_DLL" \
+            --wine-wow64-root "$WINE_ROOT" \
+            --manifest out/madeira-pe32-device-manifest.json
+          test -f external/Madeira/app/Madeira/i386-windows/madeira-pe32-probe.exe
+          test -f external/Madeira/app/Madeira/i386-windows/ntdll.dll
+          test -f external/Madeira/app/Madeira/aarch64-windows/libwow64fex.dll
+          test -f external/Madeira/app/Madeira/aarch64-windows/xtajit.dll
+
+      - name: Build unsigned device app
+        run: |
+          xcodebuild -version
+          xcodebuild -list -project external/Madeira/app/Madeira.xcodeproj
+          rm -rf build Payload Madeira-PE32-unsigned.ipa
+          xcodebuild \
+            -project external/Madeira/app/Madeira.xcodeproj \
+            -scheme Madeira \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$PWD/build/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build
+
+      - name: Package unsigned IPA
+        run: |
+          APP="$(find build/DerivedData/Build/Products/Release-iphoneos -maxdepth 1 -type d -name '*.app' | head -1)"
+          test -n "$APP"
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          /usr/bin/zip -qry Madeira-PE32-unsigned.ipa Payload
+          shasum -a 256 Madeira-PE32-unsigned.ipa > Madeira-PE32-unsigned.ipa.sha256
+          /usr/bin/du -h Madeira-PE32-unsigned.ipa
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' Payload/*.app/Info.plist
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Madeira-PE32-unsigned-IPA
+          path: |
+            Madeira-PE32-unsigned.ipa
+            Madeira-PE32-unsigned.ipa.sha256
+            out/madeira-pe32-device-manifest.json
+          if-no-files-found: error
+          retention-days: 7
