@@ -19,3 +19,4 @@ run 20: modern bison in ntdll widl stage
 run 21: frontier-first cached native stages
 run 22: d2d headers + dependency cache + deferred prebuilt assets
 run 23: COM header chain + v2 dependency cache
+run 24: propidl + oaidl headers + cached widl reuse
