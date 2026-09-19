@@ -36,7 +36,11 @@ if [ ! -x "$WIDL" ]; then
   exit 1
 fi
 
-WIDL_HEADERS=(servprov urlmon ocidl docobj exdisp shldisp)
+WIDL_HEADERS=(
+  servprov urlmon ocidl docobj
+  shtypes structuredquerycondition comcat propsys objectarray shobjidl_core shobjidl
+  exdisp shldisp
+)
 for hdr in "${WIDL_HEADERS[@]}"; do
   src="$WINE_SRC/include/$hdr.idl"
   out="$WINE_BUILD/include/$hdr.h"
