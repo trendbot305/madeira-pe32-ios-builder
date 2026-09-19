@@ -247,6 +247,29 @@ jobs:
           # directory satisfies the Xcode project without redistributing it.
           mkdir -p external/Madeira/app/Madeira/x86_64-vcruntime
 
+      - name: Guard ARM64EC-only diagnostics in native iOS FEX
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("external/Madeira/FEX/FEXCore/Source/Interface/Core/Core.cpp")
+          s = p.read_text()
+          comment = "/* iOS-Madeira ml316: report ExitToX64"
+          comment_pos = s.index(comment)
+          guard = "#ifdef FEX_IOS_HOST"
+          guard_pos = s.rfind(guard, 0, comment_pos)
+          if guard_pos < 0 or comment_pos - guard_pos > 80:
+              raise SystemExit("Could not locate the FEX iOS diagnostic guard")
+          s = (
+              s[:guard_pos]
+              + "#if defined(FEX_IOS_HOST) && defined(_WIN32)"
+              + s[guard_pos + len(guard):]
+          )
+          p.write_text(s)
+          PY
+          grep -B1 -A1 "iOS-Madeira ml316" \
+            external/Madeira/FEX/FEXCore/Source/Interface/Core/Core.cpp
+
       - name: Build FEX iOS static libraries and generated headers
         run: |
           cmake --version
