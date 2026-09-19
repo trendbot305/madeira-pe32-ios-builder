@@ -241,6 +241,37 @@ jobs:
           # directory satisfies the Xcode project without redistributing it.
           mkdir -p external/Madeira/app/Madeira/x86_64-vcruntime
 
+      - name: Build FEX iOS static libraries and generated headers
+        run: |
+          cmake --version
+          ninja --version
+          cmake \
+            -S external/Madeira/FEX \
+            -B external/Madeira/FEX/build-ios \
+            -G Ninja \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
+            -DTUNE_CPU=generic \
+            -DBUILD_TESTING=OFF \
+            -DBUILD_FEX_LINUX_TESTS=OFF \
+            -DBUILD_THUNKS=OFF \
+            -DBUILD_FEXCONFIG=OFF \
+            -DENABLE_CCACHE=OFF \
+            -DENABLE_LTO=OFF \
+            -DENABLE_OFFLINE_TELEMETRY=OFF
+          cmake --build external/Madeira/FEX/build-ios \
+            --target FEXCore FEXCore_Base JemallocLibs \
+            --parallel 3
+          test -f external/Madeira/FEX/build-ios/include/FEXCore/Config/ConfigValues.inl
+          test -f external/Madeira/FEX/build-ios/include/FEXCore/Config/ConfigOptions.inl
+          test -f external/Madeira/FEX/build-ios/FEXCore/Source/libFEXCore.a
+          test -f external/Madeira/FEX/build-ios/FEXCore/Source/libFEXCore_Base.a
+          test -f external/Madeira/FEX/build-ios/FEXCore/Source/libJemallocLibs.a
+
       - name: Build unsigned device app
         run: |
           xcodebuild -version
