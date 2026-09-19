@@ -202,8 +202,9 @@ jobs:
             external/Madeira/wine/build-macos
             external/Madeira/wine/build-arm64ec
             external/Madeira/research/freetype
-          key: ntdll-deps-${{ runner.os }}-wine7817e220-gnutls389-ft2133-v4
+          key: ntdll-deps-${{ runner.os }}-wine7817e220-gnutls389-ft2133-v5
           restore-keys: |
+            ntdll-deps-${{ runner.os }}-wine7817e220-gnutls389-ft2133-v4
             ntdll-deps-${{ runner.os }}-wine7817e220-gnutls389-ft2133-v3
             ntdll-deps-${{ runner.os }}-wine7817e220-gnutls389-ft2133-v2
             ntdll-deps-${{ runner.os }}-wine7817e220-gnutls389-ft2133-v1
@@ -237,6 +238,7 @@ jobs:
           test -f external/Madeira/wine/build-macos/include/oaidl.h || ready=false
           test -f external/Madeira/wine/build-macos/include/propidl.h || ready=false
           test -f external/Madeira/wine/build-macos/include/oleidl.h || ready=false
+          test -f external/Madeira/wine/build-macos/include/dxgiformat.h || ready=false
           test -f external/Madeira/wine/build-macos/include/d2d1.h || ready=false
           test -f external/Madeira/wine/build-macos/include/dwrite_3.h || ready=false
           test -f external/Madeira/research/freetype/include/ft2build.h || ready=false
@@ -252,7 +254,7 @@ jobs:
             external/Madeira/wine/build-macos
             external/Madeira/wine/build-arm64ec
             external/Madeira/research/freetype
-          key: ntdll-deps-${{ runner.os }}-wine7817e220-gnutls389-ft2133-v4
+          key: ntdll-deps-${{ runner.os }}-wine7817e220-gnutls389-ft2133-v5
 
       - name: Verify native Madeira ntdll archive
         run: |
