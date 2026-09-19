@@ -9,6 +9,7 @@ on:
       - ".github/build-trigger"
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -17,6 +18,7 @@ concurrency:
 
 jobs:
   fex-and-probe:
+    if: false # Reuse verified artifacts from run 9 while debugging the iOS job.
     name: Build FEX runtime and PE32 probe
     runs-on: ubuntu-22.04
     steps:
@@ -152,6 +154,7 @@ jobs:
           retention-days: 7
 
   wine-modules:
+    if: false # Reuse verified artifacts from run 9 while debugging the iOS job.
     name: Build minimal Wine WoW64 modules
     runs-on: windows-latest
     steps:
@@ -174,9 +177,6 @@ jobs:
 
   device-ipa:
     name: Build unsigned iPhone IPA
-    needs:
-      - fex-and-probe
-      - wine-modules
     runs-on: macos-latest
     steps:
       - name: Checkout builder
@@ -187,12 +187,18 @@ jobs:
       - name: Download FEX and probe
         uses: actions/download-artifact@v4
         with:
+          github-token: ${{ github.token }}
+          repository: trendbot305/madeira-pe32-ios-builder
+          run-id: 35462377249
           name: fex-and-pe32-probe
           path: kit/fex
 
       - name: Download Wine modules
         uses: actions/download-artifact@v4
         with:
+          github-token: ${{ github.token }}
+          repository: trendbot305/madeira-pe32-ios-builder
+          run-id: 35462377249
           name: wine-wow64-modules
           path: kit/wine
 
@@ -254,19 +260,31 @@ jobs:
 
           p = Path("external/Madeira/FEX/FEXCore/Source/Interface/Core/Core.cpp")
           s = p.read_text()
-          reporter = "/* iOS-Madeira ml316: report ExitToX64 FFS bypasses"
-          reporter_pos = s.index(reporter)
-          guard = "#ifdef FEX_IOS_HOST"
-          guard_pos = s.index(guard, reporter_pos)
+          start_marker = "  /* iOS-Madeira ml316: report ExitToX64 FFS bypasses"
+          end_marker = "  /* iOS-Madeira: refuse to compile obviously-invalid guest RIPs."
+          start = s.index(start_marker)
+          end = s.index(end_marker, start)
+          reporter = s[start:end]
+          if "IosFfsBypassLog" not in reporter or "IosCbEntryLog" not in reporter:
+              raise SystemExit("Unexpected FEX reporter block")
           s = (
-              s[:guard_pos]
-              + "#if defined(FEX_IOS_HOST) && defined(_WIN32)"
-              + s[guard_pos + len(guard):]
+              s[:start]
+              + "#if defined(FEX_IOS_HOST) && defined(_WIN32)\\n"
+              + reporter
+              + "#endif // FEX_IOS_HOST && _WIN32\\n\\n"
+              + s[end:]
           )
           p.write_text(s)
           PY
-          grep -B1 -A1 "iOS-Madeira ml316" \
-            external/Madeira/FEX/FEXCore/Source/Interface/Core/Core.cpp
+          python3 - <<'PY'
+          from pathlib import Path
+          s = Path("external/Madeira/FEX/FEXCore/Source/Interface/Core/Core.cpp").read_text()
+          guarded = s.split("#if defined(FEX_IOS_HOST) && defined(_WIN32)", 1)[1].split(
+              "#endif // FEX_IOS_HOST && _WIN32", 1
+          )[0]
+          assert "IosFfsBypassLog" in guarded
+          assert "IosCbEntryLog" in guarded
+          PY
 
       - name: Build FEX iOS static libraries and generated headers
         run: |
