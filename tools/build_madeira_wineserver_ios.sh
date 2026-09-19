@@ -13,6 +13,18 @@ test -d "$WINE_SRC"
 test -f "$WINE_SRC/configure"
 test -f "$BUILD_DIR/build.sh"
 
+echo "=== Ensuring modern build tools ==="
+BISON_MAJOR="$(bison --version 2>/dev/null | head -1 | sed -E 's/.* ([0-9]+)\..*/\1/' || true)"
+if [ -z "$BISON_MAJOR" ] || [ "$BISON_MAJOR" -lt 3 ]; then
+  if ! brew list bison >/dev/null 2>&1; then
+    brew install bison
+  fi
+  export PATH="$(brew --prefix bison)/bin:$PATH"
+fi
+bison --version | head -1
+BISON_MAJOR="$(bison --version | head -1 | sed -E 's/.* ([0-9]+)\..*/\1/')"
+test "$BISON_MAJOR" -ge 3
+
 echo "=== Preparing Wine generated headers ==="
 mkdir -p "$WINE_BUILD"
 if [ ! -f "$WINE_BUILD/include/config.h" ]; then
