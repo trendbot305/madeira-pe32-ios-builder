@@ -17,3 +17,4 @@ run 18: corrected wineserver DATADIR/BINDIR string macros
 run 19: native ntdll + crypto + generated DWrite headers
 run 20: modern bison in ntdll widl stage
 run 21: frontier-first cached native stages
+run 22: d2d headers + dependency cache + deferred prebuilt assets
