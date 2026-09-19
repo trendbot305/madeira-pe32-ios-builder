@@ -16,7 +16,7 @@ test -f "$NTDLL_DIR/build.sh"
 test -f "$GNUTLS_BUILD/build.sh"
 
 NEED_WINE_GEN=false
-for hdr in config.h wtypesbase.h wtypes.h unknwn.h objidlbase.h objidl.h oaidl.h propidl.h oleidl.h msxml.h dxgiformat.h d3d10_1.h dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
+for hdr in config.h wtypesbase.h wtypes.h unknwn.h objidlbase.h objidl.h oaidl.h propidl.h oleidl.h msxml.h dxgicommon.h dxgiformat.h dxgitype.h dxgi.h d3dcommon.h d3d10.h d3d10_1.h dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
   test -f "$WINE_BUILD/include/$hdr" || NEED_WINE_GEN=true
 done
 
@@ -70,11 +70,11 @@ if [ "$NEED_WINE_GEN" = true ]; then
     WIDL_HEADERS=(
       wtypesbase wtypes unknwn objidlbase objidl
       oaidl propidl oleidl msxml msxml2 msxml6 servprov urlmon ocidl
-      dxgiformat dxgitype dxgi d3dcommon
+      dxgicommon dxgiformat dxgitype dxgi dxgi1_2 dxgi1_3 dxgi1_4 dxgi1_5 dxgi1_6 dxgidebug d3dcommon
       d3d10 d3d10sdklayers d3d10shader d3d10effect d3d10_1
       dcommon
       d2d1effects d2d1effects_1 d2d1effects_2
-      d2d1 d2d1_1 d2d1_2 d2d1_3
+      d2d1 d2d1_1 d2d1_2 d2d1_3 d2d1effectauthor
       dwrite dwrite_1 dwrite_2 dwrite_3
     )
     for hdr in "${WIDL_HEADERS[@]}"; do
@@ -116,7 +116,7 @@ else
   echo "=== Reusing cached Wine generated headers ==="
 fi
 
-for hdr in wtypesbase.h wtypes.h unknwn.h objidlbase.h objidl.h oaidl.h propidl.h oleidl.h msxml.h dxgiformat.h d3d10_1.h dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
+for hdr in wtypesbase.h wtypes.h unknwn.h objidlbase.h objidl.h oaidl.h propidl.h oleidl.h msxml.h dxgicommon.h dxgiformat.h dxgitype.h dxgi.h d3dcommon.h d3d10.h d3d10_1.h dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
   test -f "$WINE_BUILD/include/$hdr"
 done
 
