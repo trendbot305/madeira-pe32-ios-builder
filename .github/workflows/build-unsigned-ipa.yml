@@ -359,6 +359,11 @@ jobs:
           bash tools/build_madeira_wineserver_ios.sh external/Madeira
           test -s external/Madeira/app/Madeira/libwineserver.a
 
+      - name: Build native Madeira ntdll archive
+        run: |
+          bash tools/build_madeira_ntdll_ios.sh external/Madeira
+          test -s external/Madeira/app/Madeira/libntdll_unix.a
+
       - name: Build unsigned device app
         run: |
           xcodebuild -version
