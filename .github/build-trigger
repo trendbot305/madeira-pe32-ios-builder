@@ -32,3 +32,4 @@ run 33: build native win32u and audit final linker inputs
 run 34: generate win32u shell COM headers before compile
 run 35: complete win32u shell IDL header closure
 run 36: generate D3D11/D3D12 headers for win32u d3dkmt
+run 37: complete D3D debug-layer header closure
