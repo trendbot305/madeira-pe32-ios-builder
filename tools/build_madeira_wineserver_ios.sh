@@ -25,6 +25,24 @@ bison --version | head -1
 BISON_MAJOR="$(bison --version | head -1 | sed -E 's/.* ([0-9]+)\..*/\1/')"
 test "$BISON_MAJOR" -ge 3
 
+echo "=== Ensuring pinned llvm-mingw PE toolchain ==="
+TOOLCHAINS_DIR="$MADEIRA_ROOT/toolchains"
+LLVM_MINGW_DIR="$TOOLCHAINS_DIR/llvm-mingw-20260421-ucrt-macos-universal"
+if [ ! -x "$LLVM_MINGW_DIR/bin/aarch64-w64-mingw32-clang" ]; then
+  mkdir -p "$TOOLCHAINS_DIR"
+  ARCHIVE="/tmp/llvm-mingw-20260421-ucrt-macos-universal.tar.xz"
+  curl -L --fail --retry 3 \
+    "https://github.com/mstorsjo/llvm-mingw/releases/download/20260421/llvm-mingw-20260421-ucrt-macos-universal.tar.xz" \
+    -o "$ARCHIVE"
+  echo "bd85a3975723815cef28dbbd2ca2cb0c926f6b348a12a0453f39f7af273cb3f7  $ARCHIVE" | shasum -a 256 -c -
+  tar -xJf "$ARCHIVE" -C "$TOOLCHAINS_DIR"
+fi
+test -x "$LLVM_MINGW_DIR/bin/aarch64-w64-mingw32-clang"
+export PATH="$LLVM_MINGW_DIR/bin:$PATH"
+aarch64-w64-mingw32-clang --version | head -1
+llvm-dlltool --version | head -1 || true
+ld.lld --version | head -1 || true
+
 echo "=== Preparing Wine generated headers ==="
 mkdir -p "$WINE_BUILD"
 if [ ! -f "$WINE_BUILD/include/config.h" ]; then
