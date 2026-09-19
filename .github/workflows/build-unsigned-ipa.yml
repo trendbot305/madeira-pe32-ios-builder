@@ -278,6 +278,39 @@ jobs:
             external/Madeira/build/ntdll-unix/obj
           key: ntdll-ios-${{ runner.os }}-97e2ce26-${{ hashFiles('tools/build_madeira_ntdll_ios.sh') }}
 
+      - name: Restore native win32u cache
+        id: cache-win32u
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            external/Madeira/app/Madeira/libwin32u_unix.a
+            external/Madeira/build/win32u-unix/obj
+            external/Madeira/build/freetype-ios/build
+          key: win32u-ios-${{ runner.os }}-97e2ce26-${{ hashFiles('tools/build_madeira_win32u_ios.sh') }}
+
+      - name: Build native Madeira win32u archive
+        if: steps.cache-win32u.outputs.cache-hit != 'true'
+        run: |
+          bash tools/build_madeira_win32u_ios.sh external/Madeira
+          test -s external/Madeira/app/Madeira/libwin32u_unix.a
+
+      - name: Verify native Madeira win32u archive
+        run: |
+          test -s external/Madeira/app/Madeira/libwin32u_unix.a
+          file external/Madeira/app/Madeira/libwin32u_unix.a
+          xcrun lipo -info external/Madeira/app/Madeira/libwin32u_unix.a
+          xcrun nm -g external/Madeira/app/Madeira/libwin32u_unix.a | grep -q '_win32u_unix_lib_init'
+
+      - name: Save native win32u cache
+        if: steps.cache-win32u.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            external/Madeira/app/Madeira/libwin32u_unix.a
+            external/Madeira/build/win32u-unix/obj
+            external/Madeira/build/freetype-ios/build
+          key: win32u-ios-${{ runner.os }}-97e2ce26-${{ hashFiles('tools/build_madeira_win32u_ios.sh') }}
+
       - name: Checkout pinned FEX only after ntdll passes
         run: |
           git -C external/Madeira submodule update --init --recursive --depth 1 FEX
@@ -482,6 +515,48 @@ jobs:
           test -f external/Madeira/app/Madeira/aarch64-windows/libwow64fex.dll
           test -f external/Madeira/app/Madeira/aarch64-windows/xtajit.dll
           mkdir -p external/Madeira/app/Madeira/x86_64-vcruntime
+
+      - name: Audit native linker inputs
+        run: |
+          set -euo pipefail
+          archives=(
+            external/Madeira/app/Madeira/libntdll_unix.a
+            external/Madeira/app/Madeira/libwineserver.a
+            external/Madeira/app/Madeira/libwin32u_unix.a
+            external/Madeira/app/Madeira/libdxmt_combined.a
+            external/Madeira/FEX/build-ios/FEXCore/Source/libFEXCore.a
+            external/Madeira/FEX/build-ios/FEXCore/Source/libFEXCore_Base.a
+            external/Madeira/FEX/build-ios/FEXCore/Source/libJemallocLibs.a
+          )
+          for lib in "${archives[@]}"; do
+            echo "=== $lib ==="
+            test -s "$lib"
+            file "$lib"
+            xcrun lipo -info "$lib" || true
+            count="$(xcrun ar -t "$lib" | wc -l | tr -d ' ')"
+            echo "archive members: $count"
+            test "$count" -gt 0
+          done
+
+          echo "=== DXMT Mach-O platform audit ==="
+          xcrun otool -l external/Madeira/app/Madeira/libdxmt_combined.a > /tmp/dxmt-otool.txt || true
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('/tmp/dxmt-otool.txt')
+          text = p.read_text(errors='replace') if p.exists() else ''
+          lines = text.splitlines()
+          platforms = {}
+          for i, line in enumerate(lines):
+              if 'LC_BUILD_VERSION' not in line:
+                  continue
+              for nxt in lines[i+1:i+8]:
+                  t = nxt.strip()
+                  if t.startswith('platform '):
+                      name = t.split(None, 1)[1]
+                      platforms[name] = platforms.get(name, 0) + 1
+                      break
+          print('DXMT LC_BUILD_VERSION platforms:', platforms or 'none reported')
+          PY
 
       - name: Build unsigned device app
         run: |
