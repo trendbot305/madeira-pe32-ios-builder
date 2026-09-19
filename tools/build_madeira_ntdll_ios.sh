@@ -15,6 +15,18 @@ test -f "$NTDLL_DIR/build.sh"
 test -f "$GNUTLS_BUILD/build.sh"
 test -x "$LLVM_MINGW_DIR/bin/aarch64-w64-mingw32-clang"
 
+echo "=== Ensuring modern Bison for widl ==="
+BISON_MAJOR="$(bison --version 2>/dev/null | head -1 | sed -E 's/.* ([0-9]+)\..*/\1/' || true)"
+if [ -z "$BISON_MAJOR" ] || [ "$BISON_MAJOR" -lt 3 ]; then
+  if ! brew list bison >/dev/null 2>&1; then
+    brew install bison
+  fi
+  export PATH="$(brew --prefix bison)/bin:$PATH"
+fi
+bison --version | head -1
+BISON_MAJOR="$(bison --version | head -1 | sed -E 's/.* ([0-9]+)\..*/\1/')"
+test "$BISON_MAJOR" -ge 3
+
 export PATH="$LLVM_MINGW_DIR/bin:$PATH"
 
 echo "=== Preparing DirectWrite generated headers ==="
