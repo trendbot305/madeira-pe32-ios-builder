@@ -440,7 +440,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: external/Madeira/toolchains/llvm-ios-build/lib
-          key: llvm15-ios-${{ runner.os }}-15.0.7-arm64-v1
+          key: llvm15-ios-${{ runner.os }}-15.0.7-arm64-${{ hashFiles('tools/build_llvm15_ios_for_dxmt.sh') }}
 
       - name: Build LLVM 15 static libraries for iOS
         if: steps.cache-llvm-ios.outputs.cache-hit != 'true'
@@ -459,7 +459,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: external/Madeira/toolchains/llvm-ios-build/lib
-          key: llvm15-ios-${{ runner.os }}-15.0.7-arm64-v1
+          key: llvm15-ios-${{ runner.os }}-15.0.7-arm64-${{ hashFiles('tools/build_llvm15_ios_for_dxmt.sh') }}
 
       - name: Restore native DXMT cache
         id: cache-dxmt
