@@ -40,6 +40,7 @@ WIDL_HEADERS=(
   servprov urlmon ocidl docobj
   shtypes structuredquerycondition comcat propsys objectarray shobjidl_core shobjidl
   dxgi d3dcommon d3d10 d3d11 d3d12
+  d3d11sdklayers d3d12sdklayers d3d11on12 d3d12shader d3d12video
   exdisp shldisp
 )
 for hdr in "${WIDL_HEADERS[@]}"; do
