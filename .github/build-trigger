@@ -9,3 +9,4 @@ rerun: 2026-09-19T18:48:00Z
 rerun: 2026-09-19T19:02:00Z
 run 11: native iOS CASPAL diagnostic guard
 run 13: corrected YAML CASPAL guard
+run 14: reproducible native wineserver build
