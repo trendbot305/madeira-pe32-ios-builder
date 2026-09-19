@@ -407,13 +407,13 @@ jobs:
           test -s /tmp/libdxmt_unix.a
           file /tmp/libdxmt_unix.a
           LLVM15_DIR="$(brew --prefix llvm@15)"
-          mapfile_compat() { while IFS= read -r line; do LLVM_LIBS+=("$line"); done; }
-          LLVM_LIBS=()
-          find "$LLVM15_DIR/lib" -type f -name 'libLLVM*.a' -print | sort | mapfile_compat
-          test "${#LLVM_LIBS[@]}" -gt 0
-          xcrun -sdk iphoneos libtool -static \
+          LLVM_LIST=/tmp/llvm15-static-libs.txt
+          find "$LLVM15_DIR/lib" -type f -name 'libLLVM*.a' -print | sort > "$LLVM_LIST"
+          test -s "$LLVM_LIST"
+          echo "LLVM static archives: $(wc -l < "$LLVM_LIST" | tr -d ' ')"
+          xargs xcrun -sdk iphoneos libtool -static \
             -o external/Madeira/app/Madeira/libdxmt_combined.a \
-            /tmp/libdxmt_unix.a "${LLVM_LIBS[@]}"
+            /tmp/libdxmt_unix.a < "$LLVM_LIST"
           test -s external/Madeira/app/Madeira/libdxmt_combined.a
           file external/Madeira/app/Madeira/libdxmt_combined.a
 
