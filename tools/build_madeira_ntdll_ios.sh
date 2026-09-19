@@ -16,7 +16,7 @@ test -f "$NTDLL_DIR/build.sh"
 test -f "$GNUTLS_BUILD/build.sh"
 
 NEED_WINE_GEN=false
-for hdr in config.h wtypesbase.h wtypes.h unknwn.h objidlbase.h objidl.h oaidl.h propidl.h oleidl.h dxgiformat.h dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
+for hdr in config.h wtypesbase.h wtypes.h unknwn.h objidlbase.h objidl.h oaidl.h propidl.h oleidl.h dxgiformat.h d3d10_1.h dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
   test -f "$WINE_BUILD/include/$hdr" || NEED_WINE_GEN=true
 done
 
@@ -64,15 +64,27 @@ if [ "$NEED_WINE_GEN" = true ]; then
     echo "=== Generating missing COM/D2D/DWrite headers directly with cached widl ==="
     WIDL="$WINE_BUILD/tools/widl/widl"
     mkdir -p "$WINE_BUILD/include"
-    for hdr in \
-      wtypesbase wtypes unknwn objidlbase objidl oaidl propidl oleidl dxgiformat \
-      dcommon d2d1 d2d1_1 d2d1_2 d2d1_3 \
-      dwrite dwrite_1 dwrite_2 dwrite_3; do
-      if [ ! -f "$WINE_BUILD/include/$hdr.h" ]; then
+    # Generate the complete static header closure used by DWrite/D2D rather than
+    # discovering one missing WIDL header per CI run.  The order below is
+    # dependency-first; widl can also resolve imports from the source tree.
+    WIDL_HEADERS=(
+      wtypesbase wtypes unknwn objidlbase objidl
+      oaidl propidl oleidl servprov urlmon ocidl
+      dxgiformat dxgitype dxgi d3dcommon
+      d3d10 d3d10sdklayers d3d10shader d3d10effect d3d10_1
+      dcommon
+      d2d1effects d2d1effects_1 d2d1effects_2
+      d2d1 d2d1_1 d2d1_2 d2d1_3
+      dwrite dwrite_1 dwrite_2 dwrite_3
+    )
+    for hdr in "${WIDL_HEADERS[@]}"; do
+      src="$WINE_SRC/include/$hdr.idl"
+      out="$WINE_BUILD/include/$hdr.h"
+      if [ -f "$src" ] && [ ! -f "$out" ]; then
         echo "widl: $hdr.idl -> $hdr.h"
-        "$WIDL" -h -o "$WINE_BUILD/include/$hdr.h" \
+        "$WIDL" -h -o "$out" \
           -I"$WINE_SRC/include" -I"$WINE_BUILD/include" \
-          "$WINE_SRC/include/$hdr.idl"
+          "$src"
       fi
     done
   else
@@ -104,7 +116,7 @@ else
   echo "=== Reusing cached Wine generated headers ==="
 fi
 
-for hdr in wtypesbase.h wtypes.h unknwn.h objidlbase.h objidl.h oaidl.h propidl.h oleidl.h dxgiformat.h dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
+for hdr in wtypesbase.h wtypes.h unknwn.h objidlbase.h objidl.h oaidl.h propidl.h oleidl.h dxgiformat.h d3d10_1.h dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
   test -f "$WINE_BUILD/include/$hdr"
 done
 
