@@ -50,13 +50,23 @@ if [ ! -f "$WINE_BUILD/include/config.h" ]; then
 fi
 test -f "$WINE_BUILD/include/config.h"
 
-echo "=== Preparing DirectWrite generated headers ==="
+echo "=== Preparing Direct2D + DirectWrite generated headers ==="
 (
   cd "$WINE_BUILD"
-  make -j2 include/dwrite.h include/dwrite_1.h include/dwrite_2.h include/dwrite_3.h
+  make -j2 \
+    include/dcommon.h \
+    include/d2d1.h \
+    include/d2d1_1.h \
+    include/d2d1_2.h \
+    include/d2d1_3.h \
+    include/dwrite.h \
+    include/dwrite_1.h \
+    include/dwrite_2.h \
+    include/dwrite_3.h
 )
-test -f "$WINE_BUILD/include/dwrite.h"
-test -f "$WINE_BUILD/include/dwrite_3.h"
+for hdr in dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
+  test -f "$WINE_BUILD/include/$hdr"
+done
 
 # Madeira's ntdll iOS script expects these generated headers at
 # wine/build-arm64ec/include. Reuse the same pinned Wine-generated headers.
@@ -80,7 +90,27 @@ test -f "$MADEIRA_ROOT/toolchains/gnutls-ios/lib/libgnutls.a"
 test -f "$MADEIRA_ROOT/toolchains/gnutls-ios/include/gnutls/gnutls.h"
 
 echo "=== Building Madeira native ntdll unix archive ==="
+set +e
 bash "$NTDLL_DIR/build.sh"
+NTDLL_STATUS=$?
+set -e
+if [ "$NTDLL_STATUS" -ne 0 ]; then
+  echo ""
+  echo "=== ntdll compile diagnostics ==="
+  found=0
+  for err in "$NTDLL_DIR"/obj/*.err; do
+    [ -f "$err" ] || continue
+    if [ -s "$err" ]; then
+      found=1
+      echo "----- $(basename "$err") -----"
+      cat "$err"
+    fi
+  done
+  if [ "$found" -eq 0 ]; then
+    echo "No non-empty per-object .err files were produced."
+  fi
+  exit "$NTDLL_STATUS"
+fi
 
 test -s "$MADEIRA_ROOT/app/Madeira/libntdll_unix.a"
 file "$MADEIRA_ROOT/app/Madeira/libntdll_unix.a"
