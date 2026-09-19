@@ -26,3 +26,4 @@ run 27: dxgiformat cached-widl header
 run 28: full DWrite D2D header closure
 run 29: complete URLMON XML header closure
 run 30: audited complete graphics header family
+run 31: WiniOS proven DXMT bootstrap
