@@ -16,12 +16,12 @@ test -f "$NTDLL_DIR/build.sh"
 test -f "$GNUTLS_BUILD/build.sh"
 
 NEED_WINE_GEN=false
-for hdr in config.h wtypesbase.h wtypes.h unknwn.h objidlbase.h objidl.h dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
+for hdr in config.h wtypesbase.h wtypes.h unknwn.h objidlbase.h objidl.h oaidl.h propidl.h dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
   test -f "$WINE_BUILD/include/$hdr" || NEED_WINE_GEN=true
 done
 
-if [ "$NEED_WINE_GEN" = true ]; then
-  echo "=== Ensuring modern Bison for Wine/widl ==="
+if [ "$NEED_WINE_GEN" = true ] && [ ! -x "$WINE_BUILD/tools/widl/widl" ]; then
+  echo "=== Ensuring modern Bison for Wine/widl bootstrap ==="
   BISON_MAJOR="$(bison --version 2>/dev/null | head -1 | sed -E 's/.* ([0-9]+)\..*/\1/' || true)"
   if [ -z "$BISON_MAJOR" ] || [ "$BISON_MAJOR" -lt 3 ]; then
     if ! brew list bison >/dev/null 2>&1; then
@@ -32,6 +32,8 @@ if [ "$NEED_WINE_GEN" = true ]; then
   bison --version | head -1
   BISON_MAJOR="$(bison --version | head -1 | sed -E 's/.* ([0-9]+)\..*/\1/')"
   test "$BISON_MAJOR" -ge 3
+elif [ "$NEED_WINE_GEN" = true ]; then
+  echo "=== Reusing cached Wine widl generator ==="
 fi
 
 echo "=== Ensuring pinned llvm-mingw PE toolchain ==="
@@ -67,6 +69,8 @@ if [ "$NEED_WINE_GEN" = true ]; then
       include/unknwn.h \
       include/objidlbase.h \
       include/objidl.h \
+      include/oaidl.h \
+      include/propidl.h \
       include/dcommon.h \
       include/d2d1.h \
       include/d2d1_1.h \
@@ -81,7 +85,7 @@ else
   echo "=== Reusing cached Wine generated headers ==="
 fi
 
-for hdr in wtypesbase.h wtypes.h unknwn.h objidlbase.h objidl.h dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
+for hdr in wtypesbase.h wtypes.h unknwn.h objidlbase.h objidl.h oaidl.h propidl.h dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
   test -f "$WINE_BUILD/include/$hdr"
 done
 
