@@ -28,3 +28,4 @@ run 29: complete URLMON XML header closure
 run 30: audited complete graphics header family
 run 31: WiniOS proven DXMT bootstrap
 run 32: fix macOS bash LLVM archive collection
+run 33: build native win32u and audit final linker inputs
