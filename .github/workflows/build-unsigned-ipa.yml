@@ -184,55 +184,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Download FEX and probe
-        uses: actions/download-artifact@v4
-        with:
-          github-token: ${{ github.token }}
-          repository: trendbot305/madeira-pe32-ios-builder
-          run-id: 35462377249
-          name: fex-and-pe32-probe
-          path: kit/fex
-
-      - name: Download Wine modules
-        uses: actions/download-artifact@v4
-        with:
-          github-token: ${{ github.token }}
-          repository: trendbot305/madeira-pe32-ios-builder
-          run-id: 35462377249
-          name: wine-wow64-modules
-          path: kit/wine
-
-      - name: Locate and verify inputs
-        run: |
-          PROBE_EXE="$(find kit/fex -type f -name madeira-pe32-probe.exe | head -1)"
-          FEX_DLL="$(find kit/fex -type f -name libwow64fex.dll | head -1)"
-          WINE_MANIFEST="$(find kit/wine -type f -name manifest.json | head -1)"
-          test -n "$PROBE_EXE"
-          test -n "$FEX_DLL"
-          test -n "$WINE_MANIFEST"
-          WINE_ROOT="$(dirname "$WINE_MANIFEST")"
-          echo "PROBE_EXE=$PROBE_EXE" >> "$GITHUB_ENV"
-          echo "FEX_DLL=$FEX_DLL" >> "$GITHUB_ENV"
-          echo "WINE_ROOT=$WINE_ROOT" >> "$GITHUB_ENV"
-          python3 - "$WINE_MANIFEST" <<'PY'
-          import json, sys
-          manifest = json.load(open(sys.argv[1]))
-          expected = {
-              ("i386-windows", "ntdll.dll", "x86"),
-              ("i386-windows", "kernelbase.dll", "x86"),
-              ("i386-windows", "kernel32.dll", "x86"),
-              ("aarch64-windows", "wow64.dll", "arm64"),
-              ("aarch64-windows", "wow64win.dll", "arm64"),
-          }
-          actual = {(x["architecture"], x["name"], x["machine"]) for x in manifest}
-          assert actual == expected, (actual, expected)
-          PY
-
       - name: Checkout pinned Madeira + Wine only
         run: |
-          git clone https://github.com/willfaust/Madeira.git external/Madeira
-          git -C external/Madeira checkout 97e2ce26e6dc9e4a38976f3b5deb9272d64558eb
-          git -C external/Madeira submodule update --init --recursive wine
+          mkdir -p external
+          git clone --filter=blob:none --no-checkout https://github.com/willfaust/Madeira.git external/Madeira
+          git -C external/Madeira fetch --depth 1 origin 97e2ce26e6dc9e4a38976f3b5deb9272d64558eb
+          git -C external/Madeira checkout --detach FETCH_HEAD
+          git -C external/Madeira submodule update --init --recursive --depth 1 wine
 
       - name: Restore ntdll dependency cache
         id: cache-ntdll-deps
@@ -303,7 +261,7 @@ jobs:
 
       - name: Checkout pinned FEX only after ntdll passes
         run: |
-          git -C external/Madeira submodule update --init --recursive FEX
+          git -C external/Madeira submodule update --init --recursive --depth 1 FEX
 
       - name: Restore native FEX cache
         id: cache-fex
@@ -410,6 +368,50 @@ jobs:
         with:
           path: external/Madeira/app/Madeira/libwineserver.a
           key: wineserver-ios-${{ runner.os }}-97e2ce26-${{ hashFiles('tools/build_madeira_wineserver_ios.sh') }}
+
+      - name: Download FEX and probe
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: trendbot305/madeira-pe32-ios-builder
+          run-id: 35462377249
+          name: fex-and-pe32-probe
+          path: kit/fex
+
+      - name: Download Wine modules
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: trendbot305/madeira-pe32-ios-builder
+          run-id: 35462377249
+          name: wine-wow64-modules
+          path: kit/wine
+
+      - name: Locate and verify inputs
+        run: |
+          PROBE_EXE="$(find kit/fex -type f -name madeira-pe32-probe.exe | head -1)"
+          FEX_DLL="$(find kit/fex -type f -name libwow64fex.dll | head -1)"
+          WINE_MANIFEST="$(find kit/wine -type f -name manifest.json | head -1)"
+          test -n "$PROBE_EXE"
+          test -n "$FEX_DLL"
+          test -n "$WINE_MANIFEST"
+          WINE_ROOT="$(dirname "$WINE_MANIFEST")"
+          echo "PROBE_EXE=$PROBE_EXE" >> "$GITHUB_ENV"
+          echo "FEX_DLL=$FEX_DLL" >> "$GITHUB_ENV"
+          echo "WINE_ROOT=$WINE_ROOT" >> "$GITHUB_ENV"
+          python3 - "$WINE_MANIFEST" <<'PY'
+          import json, sys
+          manifest = json.load(open(sys.argv[1]))
+          expected = {
+              ("i386-windows", "ntdll.dll", "x86"),
+              ("i386-windows", "kernelbase.dll", "x86"),
+              ("i386-windows", "kernel32.dll", "x86"),
+              ("aarch64-windows", "wow64.dll", "arm64"),
+              ("aarch64-windows", "wow64win.dll", "arm64"),
+          }
+          actual = {(x["architecture"], x["name"], x["machine"]) for x in manifest}
+          assert actual == expected, (actual, expected)
+          PY
 
       - name: Overlay PE32 runtime
         run: |
