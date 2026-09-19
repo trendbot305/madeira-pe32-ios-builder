@@ -2,6 +2,11 @@ name: Build unsigned Madeira PE32 IPA
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/build-trigger"
 
 permissions:
   contents: read
