@@ -257,9 +257,9 @@ jobs:
           comment = "/* iOS-Madeira ml316: report ExitToX64"
           comment_pos = s.index(comment)
           guard = "#ifdef FEX_IOS_HOST"
-          guard_pos = s.rfind(guard, 0, comment_pos)
-          if guard_pos < 0 or comment_pos - guard_pos > 80:
-              raise SystemExit("Could not locate the FEX iOS diagnostic guard")
+          guard_pos = s.index(guard, comment_pos)
+          if guard_pos - comment_pos > 1200:
+              raise SystemExit("FEX iOS diagnostic guard is unexpectedly distant")
           s = (
               s[:guard_pos]
               + "#if defined(FEX_IOS_HOST) && defined(_WIN32)"
