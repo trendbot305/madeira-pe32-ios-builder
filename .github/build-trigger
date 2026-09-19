@@ -24,3 +24,4 @@ run 25: direct cached-widl header generation
 run 26: oleidl cached-widl header
 run 27: dxgiformat cached-widl header
 run 28: full DWrite D2D header closure
+run 29: complete URLMON XML header closure
