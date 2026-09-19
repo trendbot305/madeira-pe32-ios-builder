@@ -16,7 +16,7 @@ test -f "$NTDLL_DIR/build.sh"
 test -f "$GNUTLS_BUILD/build.sh"
 
 NEED_WINE_GEN=false
-for hdr in config.h dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
+for hdr in config.h wtypesbase.h wtypes.h unknwn.h objidlbase.h objidl.h dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
   test -f "$WINE_BUILD/include/$hdr" || NEED_WINE_GEN=true
 done
 
@@ -58,10 +58,15 @@ if [ "$NEED_WINE_GEN" = true ]; then
   fi
   test -f "$WINE_BUILD/include/config.h"
 
-  echo "=== Preparing Direct2D + DirectWrite generated headers ==="
+  echo "=== Preparing COM + Direct2D + DirectWrite generated headers ==="
   (
     cd "$WINE_BUILD"
     make -j2 \
+      include/wtypesbase.h \
+      include/wtypes.h \
+      include/unknwn.h \
+      include/objidlbase.h \
+      include/objidl.h \
       include/dcommon.h \
       include/d2d1.h \
       include/d2d1_1.h \
@@ -76,7 +81,7 @@ else
   echo "=== Reusing cached Wine generated headers ==="
 fi
 
-for hdr in dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
+for hdr in wtypesbase.h wtypes.h unknwn.h objidlbase.h objidl.h dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
   test -f "$WINE_BUILD/include/$hdr"
 done
 
