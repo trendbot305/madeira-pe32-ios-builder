@@ -82,4 +82,10 @@ members="$(xcrun ar -t "$OUT" | wc -l | tr -d ' ')"
 echo "archive members: $members"
 test "$members" -gt 10
 
+echo "=== Verify expected win32u entry points ==="
+xcrun nm -g "$OUT" > /tmp/win32u-nm.txt
+grep -q '_win32u_unix_lib_init' /tmp/win32u-nm.txt
+grep -q '_winios_drv_post_mouse' /tmp/win32u-nm.txt
+grep -q '_winios_drv_post_key' /tmp/win32u-nm.txt
+
 echo "Built libwin32u_unix.a: $(wc -c < "$OUT" | tr -d ' ') bytes"
