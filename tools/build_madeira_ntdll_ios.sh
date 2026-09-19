@@ -16,7 +16,7 @@ test -f "$NTDLL_DIR/build.sh"
 test -f "$GNUTLS_BUILD/build.sh"
 
 NEED_WINE_GEN=false
-for hdr in config.h wtypesbase.h wtypes.h unknwn.h objidlbase.h objidl.h oaidl.h propidl.h dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
+for hdr in config.h wtypesbase.h wtypes.h unknwn.h objidlbase.h objidl.h oaidl.h propidl.h oleidl.h dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
   test -f "$WINE_BUILD/include/$hdr" || NEED_WINE_GEN=true
 done
 
@@ -65,7 +65,7 @@ if [ "$NEED_WINE_GEN" = true ]; then
     WIDL="$WINE_BUILD/tools/widl/widl"
     mkdir -p "$WINE_BUILD/include"
     for hdr in \
-      wtypesbase wtypes unknwn objidlbase objidl oaidl propidl \
+      wtypesbase wtypes unknwn objidlbase objidl oaidl propidl oleidl \
       dcommon d2d1 d2d1_1 d2d1_2 d2d1_3 \
       dwrite dwrite_1 dwrite_2 dwrite_3; do
       if [ ! -f "$WINE_BUILD/include/$hdr.h" ]; then
@@ -87,6 +87,7 @@ if [ "$NEED_WINE_GEN" = true ]; then
         include/objidl.h \
         include/oaidl.h \
         include/propidl.h \
+        include/oleidl.h \
         include/dcommon.h \
         include/d2d1.h \
         include/d2d1_1.h \
@@ -102,7 +103,7 @@ else
   echo "=== Reusing cached Wine generated headers ==="
 fi
 
-for hdr in wtypesbase.h wtypes.h unknwn.h objidlbase.h objidl.h oaidl.h propidl.h dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
+for hdr in wtypesbase.h wtypes.h unknwn.h objidlbase.h objidl.h oaidl.h propidl.h oleidl.h dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
   test -f "$WINE_BUILD/include/$hdr"
 done
 
