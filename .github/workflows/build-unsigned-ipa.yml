@@ -254,10 +254,10 @@ jobs:
 
           p = Path("external/Madeira/FEX/FEXCore/Source/Interface/Core/Core.cpp")
           s = p.read_text()
-          comment = "/* iOS-Madeira ml316: report ExitToX64"
-          comment_pos = s.index(comment)
+          reporter = "/* iOS-Madeira ml316: report ExitToX64 FFS bypasses"
+          reporter_pos = s.index(reporter)
           guard = "#ifdef FEX_IOS_HOST"
-          guard_pos = s.index(guard, comment_pos)
+          guard_pos = s.index(guard, reporter_pos)
           s = (
               s[:guard_pos]
               + "#if defined(FEX_IOS_HOST) && defined(_WIN32)"
