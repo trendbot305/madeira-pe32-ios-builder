@@ -29,6 +29,26 @@ for hdr in "${required_headers[@]}"; do
   fi
 done
 
+echo "=== Ensure win32u Wine generated-header closure ==="
+WIDL="$WINE_BUILD/tools/widl/widl"
+if [ ! -x "$WIDL" ]; then
+  echo "ERROR: cached Wine widl generator is missing: $WIDL"
+  exit 1
+fi
+
+WIDL_HEADERS=(servprov urlmon ocidl docobj exdisp shldisp)
+for hdr in "${WIDL_HEADERS[@]}"; do
+  src="$WINE_SRC/include/$hdr.idl"
+  out="$WINE_BUILD/include/$hdr.h"
+  if [ -f "$src" ] && [ ! -f "$out" ]; then
+    echo "widl: $hdr.idl -> $hdr.h"
+    "$WIDL" -h -o "$out" \
+      -I"$WINE_SRC/include" -I"$WINE_BUILD/include" \
+      "$src"
+  fi
+  test -f "$out"
+done
+
 echo "=== Ensure FreeType 2.13.3 source ==="
 if [ ! -f "$FREETYPE_SRC/include/ft2build.h" ]; then
   rm -rf "$FREETYPE_SRC"
