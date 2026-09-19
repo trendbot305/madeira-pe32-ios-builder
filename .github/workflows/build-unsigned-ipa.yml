@@ -232,7 +232,7 @@ jobs:
         run: |
           git clone https://github.com/willfaust/Madeira.git external/Madeira
           git -C external/Madeira checkout 97e2ce26e6dc9e4a38976f3b5deb9272d64558eb
-          git -C external/Madeira submodule update --init FEX wine
+          git -C external/Madeira submodule update --init --recursive FEX wine
 
       - name: Overlay PE32 runtime
         run: |
