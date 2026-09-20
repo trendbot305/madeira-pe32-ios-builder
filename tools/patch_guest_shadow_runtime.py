@@ -25,6 +25,12 @@ header.write_text(h, encoding="utf-8")
 # --- Native FEX guest-shadow gate ---
 s = bridge.read_text(encoding="utf-8")
 
+# The injected C++ uses getenv/strtoull/errno directly. Make those dependencies
+# explicit instead of relying on transitive Apple/FEX headers.
+for include in ("#include <cstdlib>", "#include <cerrno>"):
+    if include not in s:
+        s = include + "\n" + s
+
 # Improve the existing fault handler so a translated high host fault names the
 # logical 32-bit guest address before normal fatal handling.
 old = """static FEXCore::Core::InternalThreadState *g_current_thread = nullptr;
