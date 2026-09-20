@@ -147,20 +147,17 @@ int madeira_low_va_probe(void)
     const kern_return_t low = madeira_probe_fixed_window(
         (vm_address_t)0x70000000ULL, (vm_size_t)0x4000, "LOW_VA_1792M");
 
-    (void)madeira_probe_fixed_window(
-        (vm_address_t)0x200000000ULL, (vm_size_t)0x4000, "BIAS_8G_PAGE");
-    (void)madeira_probe_fixed_window(
-        (vm_address_t)0x280000000ULL, (vm_size_t)0x4000, "BIAS_10G_PAGE");
-    (void)madeira_probe_fixed_window(
-        (vm_address_t)0x300000000ULL, (vm_size_t)0x4000, "BIAS_12G_PAGE");
-    (void)madeira_probe_fixed_window(
-        (vm_address_t)0x300000000ULL, (vm_size_t)0x80000000ULL, "BIAS_12G_2G");
-    (void)madeira_probe_fixed_window(
-        (vm_address_t)0x400000000ULL, (vm_size_t)0x4000, "BIAS_16G_PAGE");
-
+    /*
+     * Fixed high-address guesses were diagnostic only. The device already
+     * proved that iOS rejects those exact placements while VM_FLAGS_ANYWHERE
+     * succeeds. Test the architecture we can actually use: a relocatable,
+     * contiguous high backing arena. Try the full 32-bit 4 GiB span first,
+     * then measured fallbacks for sparse-region mode.
+     */
+    (void)madeira_probe_anywhere((vm_size_t)0x100000000ULL, "ANYWHERE_4G");
+    (void)madeira_probe_anywhere((vm_size_t)0xC0000000ULL, "ANYWHERE_3G");
     (void)madeira_probe_anywhere((vm_size_t)0x80000000ULL, "ANYWHERE_2G");
     (void)madeira_probe_anywhere((vm_size_t)0x40000000ULL, "ANYWHERE_1G");
-    (void)madeira_probe_anywhere((vm_size_t)0x20000000ULL, "ANYWHERE_512M");
 
     return low == KERN_SUCCESS ? 1 : -(int)low;
 }
