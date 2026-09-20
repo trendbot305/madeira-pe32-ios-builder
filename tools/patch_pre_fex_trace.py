@@ -81,6 +81,8 @@ wine_header.write_text(header, encoding="utf-8")
 
 s = wine_bridge.read_text(encoding="utf-8")
 bridge_helper = r'''
+static char madeira_bridge_checkpoint_path[PATH_MAX];
+
 static void madeira_bridge_checkpoint(const char *stage)
 {
     @autoreleasepool {
@@ -88,6 +90,8 @@ static void madeira_bridge_checkpoint(const char *stage)
                                                               NSUserDomainMask, YES).firstObject;
         if (!docs) return;
         NSString *path = [docs stringByAppendingPathComponent:@"madeira-crash-checkpoints.txt"];
+        strlcpy(madeira_bridge_checkpoint_path, path.fileSystemRepresentation,
+                sizeof(madeira_bridge_checkpoint_path));
         int fd = open(path.fileSystemRepresentation, O_CREAT | O_WRONLY | O_APPEND, 0600);
         if (fd < 0) return;
         char line[256];
@@ -101,6 +105,58 @@ static void madeira_bridge_checkpoint(const char *stage)
         }
         (void)close(fd);
     }
+}
+
+/* This handler deliberately uses only async-signal-safe operations.  It is
+ * installed before Wine startup because FEX's crash checkpoint does not exist
+ * yet in the interval we are trying to localise.  FEX may replace it later. */
+static void madeira_early_fatal_signal(int signo)
+{
+    static const char segv[] = "EARLY_FATAL_SIGSEGV\n";
+    static const char bus[]  = "EARLY_FATAL_SIGBUS\n";
+    static const char abrt[] = "EARLY_FATAL_SIGABRT\n";
+    static const char ill[]  = "EARLY_FATAL_SIGILL\n";
+    const char *line = abrt;
+    size_t length = sizeof(abrt) - 1;
+
+    if (signo == SIGSEGV) { line = segv; length = sizeof(segv) - 1; }
+    else if (signo == SIGBUS) { line = bus; length = sizeof(bus) - 1; }
+    else if (signo == SIGILL) { line = ill; length = sizeof(ill) - 1; }
+
+    if (madeira_bridge_checkpoint_path[0]) {
+        int fd = open(madeira_bridge_checkpoint_path,
+                      O_CREAT | O_WRONLY | O_APPEND, 0600);
+        if (fd >= 0) {
+            (void)write(fd, line, length);
+            (void)fsync(fd);
+            (void)close(fd);
+        }
+    }
+
+    struct sigaction action;
+    memset(&action, 0, sizeof(action));
+    action.sa_handler = SIG_DFL;
+    (void)sigemptyset(&action.sa_mask);
+    (void)sigaction(signo, &action, NULL);
+    (void)kill(getpid(), signo);
+    _exit(128 + signo);
+}
+
+static void madeira_install_early_fatal_handlers(void)
+{
+    static int installed;
+    if (installed) return;
+
+    struct sigaction action;
+    memset(&action, 0, sizeof(action));
+    action.sa_handler = madeira_early_fatal_signal;
+    (void)sigemptyset(&action.sa_mask);
+    action.sa_flags = SA_RESETHAND;
+    (void)sigaction(SIGSEGV, &action, NULL);
+    (void)sigaction(SIGBUS, &action, NULL);
+    (void)sigaction(SIGABRT, &action, NULL);
+    (void)sigaction(SIGILL, &action, NULL);
+    installed = 1;
 }
 
 '''
@@ -172,10 +228,58 @@ if signature not in s:
 if "static void madeira_bridge_checkpoint(" not in s:
     s = s.replace(signature, bridge_helper + probe_function + signature, 1)
 s = s.replace(signature,
-              signature + '    madeira_bridge_checkpoint("WINE_PROCESS_START_ENTER");\n',
+              signature + '''    madeira_bridge_checkpoint("WINE_PROCESS_START_ENTER");
+    madeira_install_early_fatal_handlers();
+    madeira_bridge_checkpoint("WPS_FATAL_HANDLERS_INSTALLED");
+''',
               1)
-for include in ("#include <fcntl.h>", "#include <unistd.h>", "#include <mach/mach.h>"):
+
+startup_replacements = [
+    ("    g_prefix_path = strdup(prefix_path);\n",
+     "    g_prefix_path = strdup(prefix_path);\n"
+     "    madeira_bridge_checkpoint(\"WPS_PREFIX_COPIED\");\n"),
+    ("    g_wine_running = 1;\n",
+     "    g_wine_running = 1;\n"
+     "    madeira_bridge_checkpoint(\"WPS_RUNNING_FLAG_SET\");\n"),
+    ("    LOG(\"socketpair created: server_fd=%d, client_fd=%d\", pair[0], pair[1]);\n",
+     "    LOG(\"socketpair created: server_fd=%d, client_fd=%d\", pair[0], pair[1]);\n"
+     "    madeira_bridge_checkpoint(\"WPS_SOCKETPAIR_OK\");\n"),
+    ("    setenv(\"WINESERVERSOCKET\", fd_str, 1);\n",
+     "    setenv(\"WINESERVERSOCKET\", fd_str, 1);\n"
+     "    madeira_bridge_checkpoint(\"WPS_SETENV_OK\");\n"),
+    ("    wineserver_inject_client_fd(pair[0]);\n",
+     "    madeira_bridge_checkpoint(\"WPS_WINESERVER_INJECT_BEGIN\");\n"
+     "    wineserver_inject_client_fd(pair[0]);\n"
+     "    madeira_bridge_checkpoint(\"WPS_WINESERVER_INJECT_RETURNED\");\n"),
+    ("    pthread_attr_init(&attr);\n",
+     "    pthread_attr_init(&attr);\n"
+     "    madeira_bridge_checkpoint(\"WPS_PTHREAD_ATTR_INIT_OK\");\n"),
+    ("    pthread_attr_setschedparam(&attr, &sched);\n",
+     "    pthread_attr_setschedparam(&attr, &sched);\n"
+     "    madeira_bridge_checkpoint(\"WPS_PTHREAD_ATTR_SCHED_OK\");\n"),
+    ("    int ret = pthread_create(&g_wine_thread, &attr, wine_process_thread, NULL);\n",
+     "    madeira_bridge_checkpoint(\"WPS_PTHREAD_CREATE_BEGIN\");\n"
+     "    int ret = pthread_create(&g_wine_thread, &attr, wine_process_thread, NULL);\n"
+     "    madeira_bridge_checkpoint(ret == 0 ? \"WPS_PTHREAD_CREATE_OK\" : \"WPS_PTHREAD_CREATE_FAIL\");\n"),
+    ("    pthread_detach(g_wine_thread);\n",
+     "    pthread_detach(g_wine_thread);\n"
+     "    madeira_bridge_checkpoint(\"WPS_PTHREAD_DETACH_OK\");\n"),
+    ("static void *wine_process_thread(void *arg) {\n    @autoreleasepool {\n",
+     "static void madeira_bridge_checkpoint(const char *stage);\n\n"
+     "static void *wine_process_thread(void *arg) {\n"
+     "    madeira_bridge_checkpoint(\"WINE_THREAD_ENTER\");\n"
+     "    @autoreleasepool {\n"),
+    ("        pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);\n",
+     "        pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);\n"
+     "        madeira_bridge_checkpoint(\"WINE_THREAD_QOS_RETURNED\");\n"),
+]
+for old, new in startup_replacements:
+    if old not in s:
+        raise SystemExit(f"Wine startup checkpoint anchor missing: {old!r}")
+    s = s.replace(old, new, 1)
+
+for include in ("#include <fcntl.h>", "#include <unistd.h>", "#include <signal.h>", "#include <mach/mach.h>"):
     if include not in s:
         s = include + "\n" + s
 wine_bridge.write_text(s, encoding="utf-8")
-print("Installed pre-FEX launch, sequence, and Wine bridge checkpoints")
+print("Installed pre-FEX launch, per-operation Wine startup, and early fatal-signal checkpoints")

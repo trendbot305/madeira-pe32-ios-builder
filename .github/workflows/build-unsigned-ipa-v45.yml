@@ -1,4 +1,4 @@
-name: Build Madeira PE32 + Build 79 runtime fix v50
+name: Build Madeira PE32 startup localisation v51
 
 on:
   workflow_dispatch:
