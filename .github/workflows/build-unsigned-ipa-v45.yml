@@ -1,4 +1,4 @@
-name: Build Madeira PE32 low-VA test IPA v48
+name: Build Madeira PE32 guest-VA translation IPA v49
 
 on:
   workflow_dispatch:
@@ -9,6 +9,8 @@ on:
       - ".github/workflows/build-unsigned-ipa-v45.yml"
       - "tools/patch_macho_pagezero.py"
       - "tools/patch_pre_fex_trace.py"
+      - "tools/apply_fex_guest_va_patch.sh"
+      - "integration/patches/fex-a04b0241-darwin-guest-memory-bias-stage3.patch"
 
 permissions:
   actions: read
@@ -20,7 +22,6 @@ concurrency:
 
 jobs:
   fex-and-probe:
-    if: false # Reuse verified artifacts from run 9 while debugging the iOS job.
     name: Build FEX runtime and PE32 probe
     runs-on: ubuntu-22.04
     steps:
@@ -55,6 +56,9 @@ jobs:
           TOOLCHAIN_DIR="$(find "$PWD/toolchains" -maxdepth 1 -type d -name 'llvm-mingw-*' | head -1)"
           test -n "$TOOLCHAIN_DIR"
           echo "$TOOLCHAIN_DIR/bin" >> "$GITHUB_PATH"
+
+      - name: Apply audited FEX guest-VA translation core
+        run: bash tools/apply_fex_guest_va_patch.sh external/Madeira/FEX
 
       - name: Patch pinned FEX diagnostics for standalone WoW64
         run: |
@@ -178,6 +182,7 @@ jobs:
           retention-days: 7
 
   device-ipa:
+    needs: fex-and-probe
     name: Build unsigned iPhone IPA
     runs-on: macos-latest
     steps:
@@ -356,12 +361,15 @@ jobs:
             external/Madeira/.git/modules/FEX
           key: fex-source-${{ runner.os }}-97e2ce26-recursive-v1
 
+      - name: Apply audited FEX guest-VA translation core
+        run: bash tools/apply_fex_guest_va_patch.sh external/Madeira/FEX
+
       - name: Restore native FEX cache
         id: cache-fex
         uses: actions/cache/restore@v4
         with:
           path: external/Madeira/FEX/build-ios
-          key: fex-ios-${{ runner.os }}-97e2ce26-native-guards-v2
+          key: fex-ios-${{ runner.os }}-97e2ce26-guestva-v1-${{ hashFiles('integration/patches/fex-a04b0241-darwin-guest-memory-bias-stage3.patch') }}
 
       - name: Guard ARM64EC-only diagnostics in native iOS FEX
         if: steps.cache-fex.outputs.cache-hit != 'true'
@@ -435,7 +443,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: external/Madeira/FEX/build-ios
-          key: fex-ios-${{ runner.os }}-97e2ce26-native-guards-v2
+          key: fex-ios-${{ runner.os }}-97e2ce26-guestva-v1-${{ hashFiles('integration/patches/fex-a04b0241-darwin-guest-memory-bias-stage3.patch') }}
 
       - name: Restore native wineserver cache
         id: cache-wineserver
@@ -542,7 +550,6 @@ jobs:
         with:
           github-token: ${{ github.token }}
           repository: trendbot305/madeira-pe32-ios-builder
-          run-id: 35462377249
           name: fex-and-pe32-probe
           path: kit/fex
 
