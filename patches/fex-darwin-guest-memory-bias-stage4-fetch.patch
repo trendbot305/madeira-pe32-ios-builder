@@ -36,3 +36,24 @@ diff --git a/FEXCore/Source/Interface/Core/Core.cpp b/FEXCore/Source/Interface/C
            auto InstAddressReg = Thread->OpDispatcher->_EntrypointOffset(GPRSize, InstAddress - GuestRIP);
            std::array<uint8_t, 0x10> CodeOriginal;
            memcpy(CodeOriginal.data(), ExistingCodePtr, DecodedInfo->InstSize);
+
+diff --git a/FEXCore/Source/Interface/Core/JIT/AtomicOps.cpp b/FEXCore/Source/Interface/Core/JIT/AtomicOps.cpp
+--- a/FEXCore/Source/Interface/Core/JIT/AtomicOps.cpp
++++ b/FEXCore/Source/Interface/Core/JIT/AtomicOps.cpp
+@@ -149,7 +149,14 @@ DEF_OP(AtomicFetchAdd) {
+   const auto SubEmitSize = ConvertSubRegSize8(IROp->Size);
+ 
+   auto MemSrc = GetReg(Op->Addr);
+   auto Src = GetReg(Op->Value);
++
++  // The first guest-shadow device gate deliberately exercises LOCK INC.
++  // iOS hardware has LSE atomics, so translate the logical x86 address before
++  // emitting LDADDAL. Keep the non-LSE path disabled for translated guests
++  // until it gets a dedicated scratch register instead of aliasing TMP2.
++  if (IsGuestMemoryAddressTranslationEnabled()) {
++    LOGMAN_THROW_A_FMT(CTX->HostFeatures.SupportsAtomics, "Guest-shadow atomic add requires host LSE atomics");
++    MemSrc = ApplyGuestMemoryAddressBias(MemSrc);
++  }
+ 
+   if (CTX->HostFeatures.SupportsAtomics) {
+     ldaddal(SubEmitSize, Src, GetReg(Node), MemSrc);
