@@ -442,8 +442,8 @@ jobs:
         id: cache-llvm-ios
         uses: actions/cache/restore@v4
         with:
-          path: external/Madeira/toolchains/llvm-ios-build/lib
-          key: llvm15-ios-${{ runner.os }}-15.0.7-arm64-${{ hashFiles('tools/build_llvm15_ios_for_dxmt.sh') }}
+          path: external/Madeira/toolchains/llvm-ios-build
+          key: llvm15-ios-${{ runner.os }}-15.0.7-arm64-headers-v2-${{ hashFiles('tools/build_llvm15_ios_for_dxmt.sh') }}
 
       - name: Build LLVM 15 static libraries for iOS
         if: steps.cache-llvm-ios.outputs.cache-hit != 'true'
@@ -461,8 +461,8 @@ jobs:
         if: steps.cache-llvm-ios.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
-          path: external/Madeira/toolchains/llvm-ios-build/lib
-          key: llvm15-ios-${{ runner.os }}-15.0.7-arm64-${{ hashFiles('tools/build_llvm15_ios_for_dxmt.sh') }}
+          path: external/Madeira/toolchains/llvm-ios-build
+          key: llvm15-ios-${{ runner.os }}-15.0.7-arm64-headers-v2-${{ hashFiles('tools/build_llvm15_ios_for_dxmt.sh') }}
 
       - name: Restore native DXMT cache
         id: cache-dxmt
@@ -479,14 +479,17 @@ jobs:
           set -euo pipefail
           echo "Building DXMT from Madeira's pinned research/dxmt ios-port submodule."
           test -d external/Madeira/research/dxmt
-          # Madeira's DXMT build expects the LLVM source headers alongside the
-          # cached iOS LLVM libraries. Restore the matching pinned LLVM 15.0.7 source.
+          # DXMT needs both LLVM source headers and CMake-generated config
+          # headers (llvm/Config/llvm-config.h, abi-breaking.h, etc.).
+          # The generated headers belong to the exact iOS LLVM build we cache.
           if [ ! -f external/Madeira/toolchains/llvm-project/llvm/include/llvm/IR/Module.h ]; then
             mkdir -p external/Madeira/toolchains
             git clone --filter=blob:none --no-checkout --depth 1 --branch llvmorg-15.0.7 \
               https://github.com/llvm/llvm-project.git external/Madeira/toolchains/llvm-project
             git -C external/Madeira/toolchains/llvm-project checkout --detach llvmorg-15.0.7
           fi
+          test -f external/Madeira/toolchains/llvm-ios-build/include/llvm/Config/llvm-config.h
+          test -f external/Madeira/toolchains/llvm-ios-build/include/llvm/Config/abi-breaking.h
           bash external/Madeira/build/dxmt-ios/build.sh || {
             echo "=== DXMT compiler errors ==="
             for e in external/Madeira/build/dxmt-ios/obj/*.err; do
