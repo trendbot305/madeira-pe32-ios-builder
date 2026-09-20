@@ -110,64 +110,73 @@ j = stik.read_text(encoding="utf-8")
 pool_replacements = [
     (
         '        LogStore.shared.log("Allocating \\(poolSize / 1024 / 1024)MB JIT pool via debugger...")',
-        '        LogStore.shared.log("Allocating \\(poolSize / 1024 / 1024)MB JIT pool via debugger...")\\n'
+        '        LogStore.shared.log("Allocating \\(poolSize / 1024 / 1024)MB JIT pool via debugger...")\n'
         '        madeiraEarlyCheckpoint("JITPOOL_ENTER_SIZE_\\(poolSize)")',
     ),
     (
-        '        for attempt in 0..<3 {\\n'
+        '        for attempt in 0..<3 {\n'
         '            guard let p = jit26_prepare_region(nil, poolSize), p != UnsafeMutableRawPointer(bitPattern: 0) else {',
-        '        for attempt in 0..<3 {\\n'
-        '            madeiraEarlyCheckpoint("JITPOOL_RX_ATTEMPT_\\(attempt)_BEGIN")\\n'
-        '            guard let p = jit26_prepare_region(nil, poolSize), p != UnsafeMutableRawPointer(bitPattern: 0) else {\\n'
-        '                madeiraEarlyCheckpoint("JITPOOL_RX_ATTEMPT_\\(attempt)_ALLOC_FAIL")',
+        '        // Keep the original unconstrained request first, then try explicit\n'
+        '        // high-VA hints if the debugger-backed allocator rejects it.\n'
+        '        let poolHints: [UInt64?] = [nil, 0x200000000, 0x400000000, 0x600000000]\n'
+        '        for attempt in 0..<poolHints.count {\n'
+        '            let hint = poolHints[attempt].map { UnsafeMutableRawPointer(bitPattern: UInt($0)) }\n'
+        '            let hintText = hint.map { String(format: "0x%llx", UInt64(UInt(bitPattern: $0))) } ?? "ANYWHERE"\n'
+        '            errno = 0\n'
+        '            madeiraEarlyCheckpoint(String(format: "JITPOOL_REQ_ATTEMPT_%d_BASE_%@_SIZE_0x%llx_PROT_RX_FLAGS_BRK_M", attempt, hintText, UInt64(poolSize)))\n'
+        '            guard let p = jit26_prepare_region(hint, poolSize), p != UnsafeMutableRawPointer(bitPattern: 0) else {\n'
+        '                madeiraEarlyCheckpoint(String(format: "JITPOOL_REQ_ATTEMPT_%d_FAIL_BASE_%@_SIZE_0x%llx_PROT_RX_FLAGS_BRK_M_ERRNO_%d", attempt, hintText, UInt64(poolSize), errno))\n'
+        '                continue\n'
+        '            }\n'
+        '            madeiraEarlyCheckpoint(String(format: "JITPOOL_REQ_ATTEMPT_%d_OK_ADDR_0x%llx_ERRNO_%d", attempt, UInt64(UInt(bitPattern: p)), errno))',
     ),
     (
-        '            let a = Int(bitPattern: p)\\n'
+        '            let a = Int(bitPattern: p)\n'
         '            let inGuestWindow = a + poolSize > guestLo && a < guestHi',
-        '            let a = Int(bitPattern: p)\\n'
-        '            madeiraEarlyCheckpoint(String(format: "JITPOOL_RX_ATTEMPT_%d_ADDR_0x%llx_SIZE_0x%llx", attempt, UInt64(a), UInt64(poolSize)))\\n'
+        '            let a = Int(bitPattern: p)\n'
+        '            madeiraEarlyCheckpoint(String(format: "JITPOOL_RX_ATTEMPT_%d_ADDR_0x%llx_SIZE_0x%llx", attempt, UInt64(a), UInt64(poolSize)))\n'
         '            let inGuestWindow = a + poolSize > guestLo && a < guestHi',
     ),
     (
-        '            if a >= goodLow && !inGuestWindow {\\n'
+        '            if a >= goodLow && !inGuestWindow {\n'
         '                rxPtrOpt = p',
-        '            if a >= goodLow && !inGuestWindow {\\n'
-        '                madeiraEarlyCheckpoint("JITPOOL_RX_ATTEMPT_\\(attempt)_ACCEPT")\\n'
+        '            if a >= goodLow && !inGuestWindow {\n'
+        '                madeiraEarlyCheckpoint("JITPOOL_RX_ATTEMPT_\\(attempt)_ACCEPT")\n'
         '                rxPtrOpt = p',
     ),
     (
         '            LogStore.shared.log(String(format: "BAD POOL placement 0x%lx (%@) — re-rolling (attempt %d)",',
-        '            madeiraEarlyCheckpoint("JITPOOL_RX_ATTEMPT_\\(attempt)_REJECT_\\(a < goodLow ? "LOW" : "GUEST_WINDOW")")\\n'
+        '            madeiraEarlyCheckpoint("JITPOOL_RX_ATTEMPT_\\(attempt)_REJECT_\\(a < goodLow ? "LOW" : "GUEST_WINDOW")")\n'
         '            LogStore.shared.log(String(format: "BAD POOL placement 0x%lx (%@) — re-rolling (attempt %d)",',
     ),
     (
         '            let dkr = vm_deallocate(mach_task_self_, vm_address_t(a), vm_size_t(poolSize))',
-        '            let dkr = vm_deallocate(mach_task_self_, vm_address_t(a), vm_size_t(poolSize))\\n'
+        '            let dkr = vm_deallocate(mach_task_self_, vm_address_t(a), vm_size_t(poolSize))\n'
         '            madeiraEarlyCheckpoint("JITPOOL_RX_ATTEMPT_\\(attempt)_DEALLOC_KR_\\(dkr)")',
     ),
     (
         '        guard let rxPtr = rxPtrOpt else {',
-        '        guard let rxPtr = rxPtrOpt else {\\n'
+        '        guard let rxPtr = rxPtrOpt else {\n'
         '            madeiraEarlyCheckpoint("JITPOOL_NO_VALID_RX_PLACEMENT")',
     ),
     (
         '        let kr1 = vm_remap(',
-        '        madeiraEarlyCheckpoint("JITPOOL_RW_REMAP_BEGIN")\\n'
+        '        madeiraEarlyCheckpoint("JITPOOL_RW_REMAP_BEGIN")\n'
         '        let kr1 = vm_remap(',
     ),
     (
         '        guard kr1 == KERN_SUCCESS else {',
-        '        madeiraEarlyCheckpoint("JITPOOL_RW_REMAP_KR_\\(kr1)_ADDR_\\(String(format: "0x%llx", UInt64(rwAddr)))")\\n'
+        '        madeiraEarlyCheckpoint("JITPOOL_RW_REMAP_KR_\\(kr1)_ADDR_\\(String(format: "0x%llx", UInt64(rwAddr)))")\n'
         '        guard kr1 == KERN_SUCCESS else {',
     ),
     (
         '        let kr2 = vm_protect(mach_task_self_, rwAddr, vm_size_t(poolSize), 0, VM_PROT_READ | VM_PROT_WRITE)',
-        '        let kr2 = vm_protect(mach_task_self_, rwAddr, vm_size_t(poolSize), 0, VM_PROT_READ | VM_PROT_WRITE)\\n'
+        '        let kr2 = vm_protect(mach_task_self_, rwAddr, vm_size_t(poolSize), 0, VM_PROT_READ | VM_PROT_WRITE)\n'
         '        madeiraEarlyCheckpoint("JITPOOL_RW_PROTECT_KR_\\(kr2)")',
     ),
     (
         '        LogStore.shared.log("JIT pool ready (debugger still attached).", level: .success)',
-        '        madeiraEarlyCheckpoint("JITPOOL_READY")\\n'
+        '        madeiraEarlyCheckpoint("JITPOOL_READY")\n'
         '        LogStore.shared.log("JIT pool ready (debugger still attached).", level: .success)',
     ),
 ]
@@ -567,3 +576,4 @@ for include in ("#include <fcntl.h>", "#include <unistd.h>", "#include <mach/mac
         s = include + "\n" + s
 wine_bridge.write_text(s, encoding="utf-8")
 print("Installed pre-FEX launch, sequence, Wine bridge checkpoints, and guest-shadow arena publisher")
+
