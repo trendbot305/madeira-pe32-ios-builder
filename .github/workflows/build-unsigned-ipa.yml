@@ -534,6 +534,18 @@ jobs:
           test -f external/Madeira/toolchains/llvm-ios-build/include/llvm/Config/llvm-config.h
           test -f external/Madeira/toolchains/llvm-ios-build/include/llvm/Config/abi-breaking.h
           test -f external/Madeira/toolchains/llvm-ios-build/include/llvm/IR/Attributes.inc
+          # Generate the three AirConv headers that DXMT's Meson build normally
+          # creates from Metal shaders. Madeira's standalone iOS script consumes
+          # shader-headers but does not generate them itself.
+          SHADER_DIR=external/Madeira/research/dxmt/src/airconv/shaders
+          SHADER_HEADERS=external/Madeira/build/dxmt-ios/shader-headers
+          mkdir -p "$SHADER_HEADERS"
+          for shader in air_msad air_samplepos air_tessellation; do
+            xcrun -sdk iphoneos metal -std=metal3.1 -mios-version-min=18.0 \
+              -c "$SHADER_DIR/$shader.metal" -o "$SHADER_HEADERS/$shader.air"
+            xxd -n "$shader" -i "$SHADER_HEADERS/$shader.air" "$SHADER_HEADERS/$shader.h"
+            test -s "$SHADER_HEADERS/$shader.h"
+          done
           bash external/Madeira/build/dxmt-ios/build.sh || {
             echo "=== DXMT compiler errors ==="
             for e in external/Madeira/build/dxmt-ios/obj/*.err; do
