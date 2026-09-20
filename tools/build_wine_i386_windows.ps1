@@ -87,6 +87,10 @@ if ($LASTEXITCODE -ne 0) { throw "Wine checkout failed" }
 git -C $src clean -ffdx
 if ($LASTEXITCODE -ne 0) { throw "Wine source clean failed" }
 
+Write-Host "Applying Madeira WoW64 guest-pointer translation..."
+& $python.Source (Join-Path $root "tools/patch_wine_wow64_guest_ptrs.py") $src
+if ($LASTEXITCODE -ne 0) { throw "Wine WoW64 guest-pointer patch failed" }
+
 $llvm = Join-Path $toolchainRoot "bin"
 if (-not (Test-Path (Join-Path $llvm "i686-w64-mingw32-clang.exe"))) {
   if (-not (Test-Path $toolchainZip)) {
