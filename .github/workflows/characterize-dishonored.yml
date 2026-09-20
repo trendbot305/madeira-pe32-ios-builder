@@ -1,0 +1,41 @@
+name: Characterize local Dishonored executable
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/characterize-dishonored.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  characterize:
+    name: Check Dishonored PE architecture
+    runs-on: self-hosted
+    steps:
+      - name: Checkout builder
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Characterize installed Dishonored executable
+        shell: pwsh
+        run: |
+          $gameRoot = 'D:\Games\Dishonored - Complete Collection'
+          $exe = Get-ChildItem -Path $gameRoot -Filter Dishonored.exe -File -Recurse -ErrorAction Stop |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $exe) {
+            throw "Dishonored.exe was not found below $gameRoot"
+          }
+
+          py tools\pe_characterizer.py $exe -o dishonored-pe-report.json
+          Get-Content dishonored-pe-report.json
+
+      - name: Upload PE report
+        uses: actions/upload-artifact@v4
+        with:
+          name: dishonored-pe-report
+          path: dishonored-pe-report.json
+          if-no-files-found: error
+          retention-days: 7
