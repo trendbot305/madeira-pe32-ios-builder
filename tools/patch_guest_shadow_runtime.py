@@ -151,15 +151,36 @@ int64_t fex_test_guest_shadow32(void) {
     constexpr uint64_t StackGuestPage = 0x0060C000ULL;
     constexpr uint64_t StackGuestTop = 0x0060FFF0ULL;
 
-    void *LinearShadow = ::mmap(nullptr, (size_t)GuestLimit, PROT_NONE,
-                                MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    // Reuse the process-lifetime 4GiB arena reserved by the startup probe
+    // when available. Allocating a second 4GiB window would turn a successful
+    // device into an artificial sparse-fallback result.
+    bool BorrowedLinearShadow = false;
+    void *LinearShadow = MAP_FAILED;
+    if (const char *Published = getenv("WINE_IOS_FEX_GUEST_BIAS")) {
+        char *End = nullptr;
+        errno = 0;
+        const unsigned long long Base = strtoull(Published, &End, 16);
+        const char *LimitText = getenv("WINE_IOS_FEX_GUEST_LIMIT");
+        char *LimitEnd = nullptr;
+        const unsigned long long Limit = LimitText ? strtoull(LimitText, &LimitEnd, 16) : 0;
+        if (!errno && End && *End == 0 && Base &&
+            LimitEnd && *LimitEnd == 0 && Limit == GuestLimit) {
+            LinearShadow = reinterpret_cast<void*>(Base);
+            BorrowedLinearShadow = true;
+            fex_log("SHADOW_REUSE_PUBLISHED_4G base=%p", LinearShadow);
+        }
+    }
+    if (LinearShadow == MAP_FAILED) {
+        LinearShadow = ::mmap(nullptr, (size_t)GuestLimit, PROT_NONE,
+                              MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    }
     const bool Linear = LinearShadow != MAP_FAILED;
     FEXCore::Context::GuestMemoryAddressRegion Regions[3] {};
     void *Sparse[3] {MAP_FAILED, MAP_FAILED, MAP_FAILED};
 
     auto cleanup_backing = [&]() {
         if (Linear) {
-            ::munmap(LinearShadow, (size_t)GuestLimit);
+            if (!BorrowedLinearShadow) ::munmap(LinearShadow, (size_t)GuestLimit);
         } else {
             for (void *P : Sparse) if (P != MAP_FAILED) ::munmap(P, HostPage);
         }
