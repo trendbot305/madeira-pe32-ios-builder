@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="${1:-external/Madeira/FEX}"
 PATCH="${2:-integration/patches/fex-a04b0241-darwin-guest-memory-bias-stage3.patch}"
 BASE="a04b0241c2fe3911729842205cd8643981108aad"
+PINNED="053c385ecc9090702e4959a1d96752ea918a6110"
 
 git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "FEX checkout missing: $ROOT" >&2; exit 1; }
 test -s "$PATCH" || { echo "FEX guest-VA patch missing: $PATCH" >&2; exit 1; }
@@ -11,7 +12,11 @@ test -s "$PATCH" || { echo "FEX guest-VA patch missing: $PATCH" >&2; exit 1; }
 # The Madeira fork is a direct descendant of the patch's audited base. Fetching
 # that one object lets git perform a real three-way merge instead of a fuzzy
 # context-only apply against a fast-moving iOS fork.
-git -C "$ROOT" fetch --no-tags --depth=1 origin "$BASE"
+git -C "$ROOT" fetch --no-tags --depth=1 origin "$PINNED" "$BASE"
+# Source caches may contain tracked diagnostic edits from a previous build.
+# Always restore the audited Madeira FEX commit before applying the translation
+# patch so the result is deterministic on fresh and cached runners.
+git -C "$ROOT" reset --hard "$PINNED"
 git -C "$ROOT" apply --3way --whitespace=error-all "$(cd "$(dirname "$PATCH")" && pwd)/$(basename "$PATCH")"
 
 # Fail closed if any of the contract pieces did not land.
