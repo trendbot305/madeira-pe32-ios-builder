@@ -5,6 +5,7 @@ MADEIRA_ROOT="${1:-external/Madeira}"
 MADEIRA_ROOT="$(cd "$MADEIRA_ROOT" && pwd)"
 OUT_ROOT="$MADEIRA_ROOT/toolchains/llvm-ios-build"
 OUT_LIB="$OUT_ROOT/lib"
+OUT_INCLUDE="$OUT_ROOT/include"
 LLVM_VERSION="15.0.7"
 LLVM_TAG="llvmorg-15.0.7"
 SRC_ARCHIVE="/tmp/llvm-project-${LLVM_VERSION}.src.tar.xz"
@@ -13,7 +14,7 @@ BUILD_ROOT="/tmp/llvm-ios-build"
 
 mkdir -p "$MADEIRA_ROOT/toolchains"
 
-if [ -s "$OUT_LIB/libLLVMCore.a" ]; then
+if [ -s "$OUT_LIB/libLLVMCore.a" ] && [ -s "$OUT_INCLUDE/llvm/Config/llvm-config.h" ]; then
   echo "Reusing cached LLVM ${LLVM_VERSION} iOS static libraries."
   file "$OUT_LIB/libLLVMCore.a"
   exit 0
@@ -67,8 +68,14 @@ cmake --build "$BUILD_ROOT" --target llvm-libraries --parallel 3
 
 echo "=== Collect LLVM iOS archives ==="
 rm -rf "$OUT_ROOT"
-mkdir -p "$OUT_LIB"
+mkdir -p "$OUT_LIB" "$OUT_INCLUDE/llvm/Config"
 find "$BUILD_ROOT/lib" -maxdepth 1 -type f -name 'libLLVM*.a' -exec cp {} "$OUT_LIB/" \;
+
+# CMake-generated LLVM configuration headers are not in the source tree and
+# are required by DXMT AirConv when compiling against LLVM headers.
+cp -R "$BUILD_ROOT/include/llvm/Config/." "$OUT_INCLUDE/llvm/Config/"
+test -s "$OUT_INCLUDE/llvm/Config/llvm-config.h"
+test -s "$OUT_INCLUDE/llvm/Config/abi-breaking.h"
 
 count="$(find "$OUT_LIB" -maxdepth 1 -type f -name 'libLLVM*.a' | wc -l | tr -d ' ')"
 echo "Collected LLVM static archives: $count"
