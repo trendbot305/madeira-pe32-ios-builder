@@ -36,12 +36,23 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Restore FEX WoW64 build cache
+        id: cache-fex-wow64
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            external/Madeira/FEX/build-wow64
+            toolchains/llvm-mingw-20260421-ucrt-ubuntu-22.04-x86_64
+          key: fex-wow64-linux-97e2ce26-llvmmingw20260421-v1
+
       - name: Install host dependencies
+        if: steps.cache-fex-wow64.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build xz-utils python3 file
 
       - name: Download verified llvm-mingw
+        if: steps.cache-fex-wow64.outputs.cache-hit != 'true'
         run: |
           mkdir -p toolchains
           curl -L --fail --retry 3 \
@@ -54,6 +65,7 @@ jobs:
           echo "$TOOLCHAIN_DIR/bin" >> "$GITHUB_PATH"
 
       - name: Patch pinned FEX diagnostics for standalone WoW64
+        if: steps.cache-fex-wow64.outputs.cache-hit != 'true'
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -85,6 +97,7 @@ jobs:
           PY
 
       - name: Configure and build FEX WoW64 runtime
+        if: steps.cache-fex-wow64.outputs.cache-hit != 'true'
         run: |
           cmake \
             -S external/Madeira/FEX \
@@ -102,6 +115,21 @@ jobs:
             -DBUILD_THUNKS=OFF \
             -DBUILD_FEXCONFIG=OFF
           cmake --build external/Madeira/FEX/build-wow64 --target wow64fex --parallel 2
+
+      - name: Save FEX WoW64 build cache
+        if: steps.cache-fex-wow64.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            external/Madeira/FEX/build-wow64
+            toolchains/llvm-mingw-20260421-ucrt-ubuntu-22.04-x86_64
+          key: fex-wow64-linux-97e2ce26-llvmmingw20260421-v1
+
+      - name: Add llvm-mingw to PATH
+        run: |
+          TOOLCHAIN_DIR="$(find "$PWD/toolchains" -maxdepth 1 -type d -name 'llvm-mingw-*' | head -1)"
+          test -n "$TOOLCHAIN_DIR"
+          echo "$TOOLCHAIN_DIR/bin" >> "$GITHUB_PATH"
 
       - name: Build and characterize synthetic PE32 guest
         run: |
@@ -161,9 +189,24 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Restore Wine WoW64 module cache
+        id: cache-wine-wow64
+        uses: actions/cache/restore@v4
+        with:
+          path: out/wine-wow64
+          key: wine-wow64-windows-${{ hashFiles('tools/build_wine_i386_windows.ps1') }}-v1
+
       - name: Build pinned Wine module set
+        if: steps.cache-wine-wow64.outputs.cache-hit != 'true'
         shell: pwsh
         run: ./tools/build_wine_i386_windows.ps1
+
+      - name: Save Wine WoW64 module cache
+        if: steps.cache-wine-wow64.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: out/wine-wow64
+          key: wine-wow64-windows-${{ hashFiles('tools/build_wine_i386_windows.ps1') }}-v1
 
       - name: Upload Wine modules
         uses: actions/upload-artifact@v4
