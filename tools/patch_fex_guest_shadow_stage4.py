@@ -229,12 +229,12 @@ if "#if defined(_WIN32) // rpmalloc CAS telemetry" not in s:
         raise SystemExit("rpmalloc CAS telemetry end anchor missing")
     s = s.replace(
         rpm_start,
-        "#if defined(_WIN32) // rpmalloc CAS telemetry\\n" + rpm_start,
+        "#if defined(_WIN32) // rpmalloc CAS telemetry\n" + rpm_start,
         1,
     )
     s = s.replace(
         rpm_end,
-        "      }\\n#endif // _WIN32 - rpmalloc CAS telemetry\\n    }\\n  }\\n\\n  /* iOS-Madeira 2026-05-14: per-thread callret tracking",
+        "      }\n#endif // _WIN32 - rpmalloc CAS telemetry\n    }\n  }\n\n  /* iOS-Madeira 2026-05-14: per-thread callret tracking",
         1,
     )
 p.write_text(s, encoding="utf-8")
