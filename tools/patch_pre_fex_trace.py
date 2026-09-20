@@ -6,6 +6,7 @@ root = Path(sys.argv[1])
 content_view = root / "app/Madeira/ContentView.swift"
 app_file = root / "app/Madeira/MadeiraApp.swift"
 wine_bridge = root / "app/Madeira/WineProcessBridge.m"
+wine_header = root / "app/Madeira/WineProcessBridge.h"
 
 s = content_view.read_text(encoding="utf-8")
 helper = r'''
@@ -58,12 +59,25 @@ old = "struct MadeiraApp: App {\n    var body: some Scene {"
 new = '''struct MadeiraApp: App {
     init() {
         madeiraEarlyCheckpoint("APP_INIT_ENTER")
+        let lowVAResult = madeira_low_va_probe()
+        madeiraEarlyCheckpoint(lowVAResult == 1 ? "LOW_VA_PROBE_OK" : "LOW_VA_PROBE_FAIL_\\(lowVAResult)")
     }
 
     var body: some Scene {'''
 if old not in s:
     raise SystemExit("MadeiraApp init marker missing")
 app_file.write_text(s.replace(old, new, 1), encoding="utf-8")
+
+
+
+header = wine_header.read_text(encoding="utf-8")
+declaration = "int madeira_low_va_probe(void);"
+if declaration not in header:
+    anchor = "int wine_process_start(const char *prefix_path);"
+    if anchor not in header:
+        raise SystemExit("WineProcessBridge header anchor missing")
+    header = header.replace(anchor, declaration + "\\n" + anchor, 1)
+wine_header.write_text(header, encoding="utf-8")
 
 s = wine_bridge.read_text(encoding="utf-8")
 bridge_helper = r'''
@@ -94,11 +108,11 @@ signature = "int wine_process_start(const char *prefix_path) {\n"
 if signature not in s:
     raise SystemExit("wine_process_start marker missing")
 if "static void madeira_bridge_checkpoint(" not in s:
-    s = s.replace(signature, bridge_helper + signature, 1)
+    s = s.replace(signature, bridge_helper + probe_function + signature, 1)
 s = s.replace(signature,
               signature + '    madeira_bridge_checkpoint("WINE_PROCESS_START_ENTER");\n',
               1)
-for include in ("#include <fcntl.h>", "#include <unistd.h>"):
+for include in ("#include <fcntl.h>", "#include <unistd.h>", "#include <mach/mach.h>"):
     if include not in s:
         s = include + "\n" + s
 wine_bridge.write_text(s, encoding="utf-8")
