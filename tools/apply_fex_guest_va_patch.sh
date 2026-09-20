@@ -5,7 +5,7 @@ ROOT="${1:-external/Madeira/FEX}"
 PATCH="${2:-integration/patches/fex-a04b0241-darwin-guest-memory-bias-stage3.patch}"
 BASE="a04b0241c2fe3911729842205cd8643981108aad"
 
-test -d "$ROOT/.git" || { echo "FEX checkout missing: $ROOT" >&2; exit 1; }
+git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "FEX checkout missing: $ROOT" >&2; exit 1; }
 test -s "$PATCH" || { echo "FEX guest-VA patch missing: $PATCH" >&2; exit 1; }
 
 # The Madeira fork is a direct descendant of the patch's audited base. Fetching
