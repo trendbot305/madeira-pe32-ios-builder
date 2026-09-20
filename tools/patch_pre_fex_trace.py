@@ -216,13 +216,21 @@ int madeira_low_va_probe(void)
     (void)madeira_probe_fixed_window(
         (vm_address_t)0x400000000ULL, (vm_size_t)0x4000, "BIAS_16G_PAGE");
 
-    (void)madeira_probe_anywhere((vm_size_t)0x100000000ULL, "ANYWHERE_4G");
-    (void)madeira_probe_anywhere((vm_size_t)0xC0000000ULL, "ANYWHERE_3G");
-    (void)madeira_probe_anywhere((vm_size_t)0x80000000ULL, "ANYWHERE_2G");
+    /* Reserve the 4GiB candidate instead of probing it and immediately
+     * releasing it. This avoids creating a transient 4GiB hole and then
+     * depending on the identical region still being available moments later.
+     * On failure, configure_guest_shadow_arena performs the requested 3GiB/2GiB
+     * capacity probes and marks sparse fallback as required. */
+    madeira_configure_guest_shadow_arena();
+
+    if (g_madeira_guest_shadow_base) {
+        char stage[192];
+        snprintf(stage, sizeof(stage), "ANYWHERE_4G_OK_ADDR_0x%llx_SIZE_0x100000000",
+                 (unsigned long long)g_madeira_guest_shadow_base);
+        madeira_bridge_checkpoint(stage);
+    }
     (void)madeira_probe_anywhere((vm_size_t)0x40000000ULL, "ANYWHERE_1G");
     (void)madeira_probe_anywhere((vm_size_t)0x20000000ULL, "ANYWHERE_512M");
-
-    madeira_configure_guest_shadow_arena();
     return low == KERN_SUCCESS ? 1 : -(int)low;
 }
 
