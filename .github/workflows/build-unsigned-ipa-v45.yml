@@ -1,4 +1,4 @@
-name: Build Madeira PE32 baseline IPA v49
+name: Build Madeira PE32 + Build 79 runtime fix v50
 
 on:
   workflow_dispatch:
@@ -8,6 +8,7 @@ on:
     paths:
       - ".github/workflows/build-unsigned-ipa-v45.yml"
       - "tools/patch_pre_fex_trace.py"
+      - "tools/patch_fex_build79_virtualprotect.py"
 
 permissions:
   actions: read
@@ -19,7 +20,6 @@ concurrency:
 
 jobs:
   fex-and-probe:
-    if: false # Reuse verified artifacts from run 9 while debugging the iOS job.
     name: Build FEX runtime and PE32 probe
     runs-on: ubuntu-22.04
     steps:
@@ -37,6 +37,12 @@ jobs:
           submodules: recursive
           fetch-depth: 1
           persist-credentials: false
+
+      - name: Apply Madeira Build 79 FEX VirtualProtect fix
+        run: |
+          python3 tools/patch_fex_build79_virtualprotect.py external/Madeira/FEX
+          grep -Fq 'DWORD OldProtect {};' external/Madeira/FEX/FEXCore/include/FEXCore/Utils/AllocatorHooks.h
+          grep -Fq 'VirtualProtect(Ptr, Size, prot, &OldProtect) != 0' external/Madeira/FEX/FEXCore/include/FEXCore/Utils/AllocatorHooks.h
 
       - name: Install host dependencies
         run: |
@@ -177,6 +183,7 @@ jobs:
           retention-days: 7
 
   device-ipa:
+    needs: fex-and-probe
     name: Build unsigned iPhone IPA
     runs-on: macos-latest
     steps:
@@ -536,12 +543,9 @@ jobs:
           echo "LLVM iOS   : ${{ steps.cache-llvm-ios.outputs.cache-hit }}"
           echo "DXMT       : ${{ steps.cache-dxmt.outputs.cache-hit }}"
 
-      - name: Download FEX and probe
+      - name: Download Build 79-fixed FEX and probe
         uses: actions/download-artifact@v4
         with:
-          github-token: ${{ github.token }}
-          repository: trendbot305/madeira-pe32-ios-builder
-          run-id: 35462377249
           name: fex-and-pe32-probe
           path: kit/fex
 
