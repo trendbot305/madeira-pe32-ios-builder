@@ -1,0 +1,102 @@
+diff --git a/Source/Windows/WOW64/Module.cpp b/Source/Windows/WOW64/Module.cpp
+--- a/Source/Windows/WOW64/Module.cpp
++++ b/Source/Windows/WOW64/Module.cpp
+@@ -46,6 +46,7 @@
+ #include <cstdint>
+ #include <type_traits>
+ #include <atomic>
++#include <cstdlib>
+ #include <mutex>
+ #include <utility>
+ #include <unordered_map>
+@@ -145,6 +146,75 @@ std::unordered_map<DWORD, FEXCore::Core::InternalThreadState*> Threads;
+ 
+ decltype(__wine_unix_call_dispatcher) WineUnixCall;
+ 
++uint64_t ReadHexEnvironmentU64(const char* Name) {
++  char Buffer[64] {};
++  const DWORD Count = GetEnvironmentVariableA(Name, Buffer, sizeof(Buffer));
++  if (Count == 0 || Count >= sizeof(Buffer)) {
++    return 0;
++  }
++  char* End {};
++  return static_cast<uint64_t>(strtoull(Buffer, &End, 16));
++}
++
++void ConfigureGuestShadowMemory() {
++  const uint64_t Bias = ReadHexEnvironmentU64("WINE_IOS_FEX_GUEST_BIAS");
++  const uint64_t Limit = ReadHexEnvironmentU64("WINE_IOS_FEX_GUEST_LIMIT");
++  const uint64_t RedirectGuest = ReadHexEnvironmentU64("WINE_IOS_FEX_REDIRECT_GUEST");
++  const uint64_t RedirectHost = ReadHexEnvironmentU64("WINE_IOS_FEX_REDIRECT_HOST");
++
++  if (!Bias || !Limit) {
++    LogMan::Msg::IFmt("[guest-shadow] disabled: WINE_IOS_FEX_GUEST_BIAS/LIMIT not present");
++    return;
++  }
++
++  if ((Bias & 0xfff) || (Limit & 0xfff)) {
++    LogMan::Msg::EFmt("[guest-shadow] refused unaligned bias={:#x} limit={:#x}", Bias, Limit);
++    return;
++  }
++
++  if (Limit != (1ULL << 32)) {
++    LogMan::Msg::EFmt("[guest-shadow] refused non-4GiB linear window limit={:#x}; sparse fallback not wired yet", Limit);
++    return;
++  }
++
++  CTX->SetGuestMemoryAddressBias(Bias, Limit, RedirectGuest, RedirectHost);
++
++  uint64_t ProbeHost {};
++  const bool ProbeOK = CTX->TranslateGuestMemoryAddress(0x00400000ULL, &ProbeHost);
++  LogMan::Msg::IFmt(
++    "[guest-shadow] enabled bias={:#x} limit={:#x} redirect_guest={:#x} redirect_host={:#x} probe_guest=0x00400000 -> host={:#x} ok={}",
++    Bias,
++    Limit,
++    RedirectGuest,
++    RedirectHost,
++    ProbeHost,
++    ProbeOK ? "yes" : "no");
++}
++
++uint64_t TranslateHostFaultToGuest(uint64_t HostAddress) {
++  if (!CTX) {
++    return HostAddress;
++  }
++
++  uint64_t GuestAddress {};
++  if (CTX->TranslateHostMemoryAddress(HostAddress, &GuestAddress)) {
++    LogMan::Msg::DFmt(
++      "[guest-shadow] translated host fault {:#x} -> guest {:#x}",
++      HostAddress,
++      GuestAddress);
++    return GuestAddress;
++  }
++  return HostAddress;
++}
++
+ std::pair<NTSTATUS, TLS> GetThreadTLS(HANDLE Thread) {
+   THREAD_BASIC_INFORMATION Info;
+   const NTSTATUS Err = NtQueryInformationThread(Thread, ThreadBasicInformation, &Info, sizeof(Info), nullptr);
+@@ -531,6 +601,7 @@ void BTCpuProcessInit() {
+     CTX = FEXCore::Context::Context::CreateNewContext(HostFeatures);
+   }
+ 
++  ConfigureGuestShadowMemory();
+   CTX->SetSignalDelegator(SignalDelegator.get());
+   CTX->SetSyscallHandler(SyscallHandler.get());
+   CTX->InitCore();
+@@ -843,6 +914,14 @@ bool BTCpuResetToConsistentStateImpl(EXCEPTION_POINTERS* Ptrs) {
+ 
+   if (Exception->ExceptionCode == EXCEPTION_ACCESS_VIOLATION) {
+     const auto FaultAddress = static_cast<uint64_t>(Exception->ExceptionInformation[1]);
++    const uint64_t GuestFaultAddress = TranslateHostFaultToGuest(FaultAddress);
++    if (GuestFaultAddress != FaultAddress && Exception->NumberParameters > 1) {
++      Exception->ExceptionInformation[1] = GuestFaultAddress;
++      LogMan::Msg::DFmt(
++        "[guest-shadow] access violation fault host {:#x} published as guest {:#x}",
++        FaultAddress,
++        GuestFaultAddress);
++    }
+ 
+     if (FEX::Windows::CallRetStack::HandleAccessViolation(Thread, FaultAddress, Context->X25)) {
+       return true;
