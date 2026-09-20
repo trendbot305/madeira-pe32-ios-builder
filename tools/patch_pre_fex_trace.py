@@ -302,6 +302,61 @@ startup_replacements = [
      "            madeira_bridge_checkpoint(\"WINE_THREAD_WINEDLLPATH_LOG_BEGIN\");\n"
      "            LOG(\"WINEDLLPATH=%{public}s\", bundlePathUTF8);\n"
      "            madeira_bridge_checkpoint(\"WINE_THREAD_WINEDLLPATH_LOG_RETURNED\");\n"),
+    ("            const char *verbose = getenv(\"MADEIRA_DEBUG_VERBOSE\");\n",
+     "            madeira_bridge_checkpoint(\"WINE_THREAD_WINEDEBUG_BEGIN\");\n"
+     "            const char *verbose = getenv(\"MADEIRA_DEBUG_VERBOSE\");\n"),
+    ("                setenv(\"WINEDEBUG\", \"err+all,fixme+all,warn+module,warn+file,trace+process,trace+module,trace+loaddll,trace+loadorder,trace+win,trace+user32,trace+syscall,trace+file\", 1);\n",
+     "                setenv(\"WINEDEBUG\", \"err+all,fixme+all,warn+module,warn+file,trace+process,trace+module,trace+loaddll,trace+loadorder,trace+win,trace+user32,trace+syscall,trace+file\", 1);\n"
+     "                madeira_bridge_checkpoint(\"WINE_THREAD_WINEDEBUG_VERBOSE_SET\");\n"),
+    ("                setenv(\"WINEDEBUG\", \"err+all,err-virtual\", 1);\n",
+     "                setenv(\"WINEDEBUG\", \"err+all,err-virtual\", 1);\n"
+     "                madeira_bridge_checkpoint(\"WINE_THREAD_WINEDEBUG_DEFAULT_SET\");\n"),
+    ("        setenv(\"MADEIRA_WIN32U\", \"1\", 1);\n",
+     "        madeira_bridge_checkpoint(\"WINE_THREAD_WINEDEBUG_DONE\");\n"
+     "        setenv(\"MADEIRA_WIN32U\", \"1\", 1);\n"
+     "        madeira_bridge_checkpoint(\"WINE_THREAD_WIN32U_SET\");\n"),
+    ("        setenv(\"FNA3D_FORCE_DRIVER\", \"D3D11\", 0);\n",
+     "        setenv(\"FNA3D_FORCE_DRIVER\", \"D3D11\", 0);\n"
+     "        madeira_bridge_checkpoint(\"WINE_THREAD_FNA_DRIVER_SET\");\n"),
+    ("        setenv(\"MONO_LOG_LEVEL\", \"warning\", 0);\n",
+     "        setenv(\"MONO_LOG_LEVEL\", \"warning\", 0);\n"
+     "        madeira_bridge_checkpoint(\"WINE_THREAD_MONO_LEVEL_SET\");\n"),
+    ("        setenv(\"MADEIRA_QUIET\", \"1\", 1);\n",
+     "        setenv(\"MADEIRA_QUIET\", \"1\", 1);\n"
+     "        madeira_bridge_checkpoint(\"WINE_THREAD_QUIET_SET\");\n"),
+    ("            NSError *aerr = nil;\n",
+     "            madeira_bridge_checkpoint(\"WINE_THREAD_AUDIO_BEGIN\");\n"
+     "            NSError *aerr = nil;\n"),
+    ("            AVAudioSession *session = [AVAudioSession sharedInstance];\n",
+     "            AVAudioSession *session = [AVAudioSession sharedInstance];\n"
+     "            madeira_bridge_checkpoint(session ? \"WINE_THREAD_AUDIO_SESSION_OK\" : \"WINE_THREAD_AUDIO_SESSION_NULL\");\n"),
+    ("            [session setCategory:AVAudioSessionCategoryPlayback error:&aerr];\n",
+     "            [session setCategory:AVAudioSessionCategoryPlayback error:&aerr];\n"
+     "            madeira_bridge_checkpoint(aerr ? \"WINE_THREAD_AUDIO_CATEGORY_ERROR\" : \"WINE_THREAD_AUDIO_CATEGORY_OK\");\n"),
+    ("            [session setActive:YES error:&aerr];\n",
+     "            [session setActive:YES error:&aerr];\n"
+     "            madeira_bridge_checkpoint(aerr ? \"WINE_THREAD_AUDIO_ACTIVE_ERROR\" : \"WINE_THREAD_AUDIO_ACTIVE_OK\");\n"),
+    ("        setenv(\"SteamAppId\",  \"356400\", 1);\n",
+     "        setenv(\"SteamAppId\",  \"356400\", 1);\n"
+     "        madeira_bridge_checkpoint(\"WINE_THREAD_STEAM_ENV_SET\");\n"),
+    ("            int64_t jit_off = fex_get_jit_write_offset();\n",
+     "            madeira_bridge_checkpoint(\"WINE_THREAD_JIT_OFFSET_BEGIN\");\n"
+     "            int64_t jit_off = fex_get_jit_write_offset();\n"
+     "            madeira_bridge_checkpoint(jit_off ? \"WINE_THREAD_JIT_OFFSET_OK\" : \"WINE_THREAD_JIT_OFFSET_ZERO\");\n"),
+    ("        LOG(\"WINEPREFIX=%{public}s\", g_prefix_path);\n",
+     "        madeira_bridge_checkpoint(\"WINE_THREAD_PREFIX_LOG_BEGIN\");\n"
+     "        LOG(\"WINEPREFIX=%{public}s\", g_prefix_path);\n"
+     "        madeira_bridge_checkpoint(\"WINE_THREAD_PREFIX_LOG_RETURNED\");\n"),
+    ("            wine_log_set_file(logPath.UTF8String);\n",
+     "            madeira_bridge_checkpoint(\"WINE_THREAD_LOG_FILE_BEGIN\");\n"
+     "            wine_log_set_file(logPath.UTF8String);\n"
+     "            madeira_bridge_checkpoint(\"WINE_THREAD_LOG_FILE_SET\");\n"),
+    ("            { extern void winios_freeze_watch_start(void); winios_freeze_watch_start(); }\n",
+     "            { extern void winios_freeze_watch_start(void); winios_freeze_watch_start(); }\n"
+     "            madeira_bridge_checkpoint(\"WINE_THREAD_FREEZE_WATCH_STARTED\");\n"),
+    ("            setenv(\"MADEIRA_DOCS_DIR\", docs.UTF8String, 1);\n",
+     "            setenv(\"MADEIRA_DOCS_DIR\", docs.UTF8String, 1);\n"
+     "            madeira_bridge_checkpoint(\"WINE_THREAD_DOCS_DIR_SET\");\n"),
 ]
 for old, new in startup_replacements:
     if old not in s:
