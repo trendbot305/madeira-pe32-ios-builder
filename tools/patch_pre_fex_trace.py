@@ -402,21 +402,15 @@ print(f"Installed {statement_no} Wine-process statement checkpoints")
 # robust (use the owned duplicate, not the caller's temporary pointer) and add
 # descriptive checkpoints on the actual Wine worker thread so the next crash
 # cannot be mis-attributed to the handoff thread.
-owned_old = '''    madeira_bridge_checkpoint("WINEPROC_STEP_01_BEGIN");
-    g_prefix_path = strdup(prefix_path);
-    madeira_bridge_checkpoint("WINEPROC_STEP_01_OK");
-'''
-owned_new = '''    madeira_bridge_checkpoint("WINEPROC_STEP_01_BEGIN");
-    g_prefix_path = strdup(prefix_path);
+dup_old = '    g_prefix_path = strdup(prefix_path);'
+dup_new = '''    g_prefix_path = strdup(prefix_path);
     if (!g_prefix_path) {
         madeira_bridge_checkpoint("WINEPROC_PREFIX_DUP_FAIL");
         return -1;
-    }
-    madeira_bridge_checkpoint("WINEPROC_STEP_01_OK");
-'''
-if owned_old not in s:
-    raise SystemExit("owned-prefix launcher anchor missing")
-s = s.replace(owned_old, owned_new, 1)
+    }'''
+if dup_old not in s:
+    raise SystemExit("g_prefix_path strdup anchor missing")
+s = s.replace(dup_old, dup_new, 1)
 
 log_old = '    LOG("Starting Wine process with prefix: %{public}s", prefix_path);'
 log_new = '    LOG("Starting Wine process with prefix: %{public}s", g_prefix_path);'
