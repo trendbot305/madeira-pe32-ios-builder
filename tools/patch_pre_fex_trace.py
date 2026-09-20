@@ -107,6 +107,8 @@ content_view.write_text(s, encoding="utf-8")
 # placement is rejected, deallocation result, and RW remap/protect results.
 stik = root / "app/Madeira/StikJITHelper.swift"
 j = stik.read_text(encoding="utf-8")
+if "import Darwin\n" not in j:
+    j = "import Darwin\n" + j
 pool_replacements = [
     (
         '        LogStore.shared.log("Allocating \\(poolSize / 1024 / 1024)MB JIT pool via debugger...")',
@@ -115,7 +117,10 @@ pool_replacements = [
     ),
     (
         '        for attempt in 0..<3 {\n'
-        '            guard let p = jit26_prepare_region(nil, poolSize), p != UnsafeMutableRawPointer(bitPattern: 0) else {',
+        '            guard let p = jit26_prepare_region(nil, poolSize), p != UnsafeMutableRawPointer(bitPattern: 0) else {\n'
+        '                LogStore.shared.log("Debugger failed to allocate RX memory (attempt \\(attempt))", level: .error)\n'
+        '                break\n'
+        '            }',
         '        // Keep the original unconstrained request first, then try explicit\n'
         '        // high-VA hints if the debugger-backed allocator rejects it.\n'
         '        let poolHints: [UInt64?] = [nil, 0x200000000, 0x400000000, 0x600000000]\n'
