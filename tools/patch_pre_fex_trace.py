@@ -289,6 +289,19 @@ startup_replacements = [
     ("        setenv(\"WINELOADERNOEXEC\", \"1\", 1);\n",
      "        setenv(\"WINELOADERNOEXEC\", \"1\", 1);\n"
      "        madeira_bridge_checkpoint(\"WINE_THREAD_LOADERNOEXEC_SET\");\n"),
+    ("            NSString *bundlePath = [[NSBundle mainBundle] bundlePath];\n",
+     "            madeira_bridge_checkpoint(\"WINE_THREAD_BUNDLE_PATH_BEGIN\");\n"
+     "            NSString *bundlePath = [[NSBundle mainBundle] bundlePath];\n"
+     "            madeira_bridge_checkpoint(\"WINE_THREAD_BUNDLE_PATH_RETURNED\");\n"
+     "            const char *bundlePathUTF8 = bundlePath.UTF8String;\n"
+     "            madeira_bridge_checkpoint(bundlePathUTF8 ? \"WINE_THREAD_BUNDLE_UTF8_OK\" : \"WINE_THREAD_BUNDLE_UTF8_NULL\");\n"),
+    ("            setenv(\"WINEDLLPATH\", bundlePath.UTF8String, 1);\n",
+     "            setenv(\"WINEDLLPATH\", bundlePathUTF8, 1);\n"
+     "            madeira_bridge_checkpoint(\"WINE_THREAD_WINEDLLPATH_SET\");\n"),
+    ("            LOG(\"WINEDLLPATH=%{public}s\", bundlePath.UTF8String);\n",
+     "            madeira_bridge_checkpoint(\"WINE_THREAD_WINEDLLPATH_LOG_BEGIN\");\n"
+     "            LOG(\"WINEDLLPATH=%{public}s\", bundlePathUTF8);\n"
+     "            madeira_bridge_checkpoint(\"WINE_THREAD_WINEDLLPATH_LOG_RETURNED\");\n"),
 ]
 for old, new in startup_replacements:
     if old not in s:

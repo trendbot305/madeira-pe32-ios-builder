@@ -1,4 +1,4 @@
-name: Build Madeira PE32 startup localisation v52
+name: Build Madeira PE32 startup localisation v53
 
 on:
   workflow_dispatch:
