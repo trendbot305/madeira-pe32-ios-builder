@@ -1,0 +1,38 @@
+diff --git a/FEXCore/Source/Interface/Core/Frontend.cpp b/FEXCore/Source/Interface/Core/Frontend.cpp
+--- a/FEXCore/Source/Interface/Core/Frontend.cpp
++++ b/FEXCore/Source/Interface/Core/Frontend.cpp
+@@ -1360,6 +1360,17 @@ const Decoder::DecodeStream Decoder::AdjustAddrForSpecialRegion(const uint8_t*
+     };
+   }
+ 
++  // Darwin/iOS 32-bit guest shadow: the guest RIP remains the logical x86
++  // address while instruction bytes live in a high host mapping. Keep
++  // InstStream logical so executable-range checks and guest RIP accounting
++  // continue to use x86 addresses, but read bytes through the translated host
++  // pointer.
++  uint64_t HostRIP {};
++  if (CTX->TranslateGuestMemoryAddress(RIP, &HostRIP)) {
++    return DecodeStream {
++      .InstStream = reinterpret_cast<const uint8_t*>(RIP),
++      .AdjustedInstStream = reinterpret_cast<const uint8_t*>(HostRIP),
++    };
++  }
++
+   return DecodeStream {
+     .InstStream = _InstStream - EntryPoint + RIP,
+     .AdjustedInstStream = _InstStream - EntryPoint + RIP,
+diff --git a/FEXCore/Source/Interface/Core/Core.cpp b/FEXCore/Source/Interface/Core/Core.cpp
+--- a/FEXCore/Source/Interface/Core/Core.cpp
++++ b/FEXCore/Source/Interface/Core/Core.cpp
+@@ -964,7 +964,11 @@
+         }
+ 
+         if (Config.SMCChecks == FEXCore::Config::CONFIG_SMC_FULL || Block.ForceFullSMCDetection) {
+-          auto ExistingCodePtr = reinterpret_cast<uint8_t*>(Block.Entry + BlockInstructionsLength);
++          const uint64_t ExistingGuestAddress = Block.Entry + BlockInstructionsLength;
++          uint64_t ExistingHostAddress = ExistingGuestAddress;
++          (void)TranslateGuestMemoryAddress(ExistingGuestAddress, &ExistingHostAddress);
++          auto ExistingCodePtr = reinterpret_cast<uint8_t*>(ExistingHostAddress);
+           auto InstAddressReg = Thread->OpDispatcher->_EntrypointOffset(GPRSize, InstAddress - GuestRIP);
+           std::array<uint8_t, 0x10> CodeOriginal;
+           memcpy(CodeOriginal.data(), ExistingCodePtr, DecodedInfo->InstSize);
