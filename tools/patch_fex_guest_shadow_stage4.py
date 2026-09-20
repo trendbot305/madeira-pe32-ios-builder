@@ -86,18 +86,42 @@ if "ReadHexEnvironmentU64" not in s:
     inc = "#include <cstdint>\n"
     if inc not in s:
         raise SystemExit("WOW64 include anchor missing")
-    s = s.replace(inc, inc + "#include <cstdlib>\n", 1)
-
     helper_anchor = "decltype(__wine_unix_call_dispatcher) WineUnixCall;\n"
     helper = r'''
 uint64_t ReadHexEnvironmentU64(const char* Name) {
-  char Buffer[64] {};
-  const DWORD Count = GetEnvironmentVariableA(Name, Buffer, sizeof(Buffer));
-  if (Count == 0 || Count >= sizeof(Buffer)) {
-    return 0;
+  // libwow64fex is linked -nostdlib. Do not add kernel32/msvcrt imports just
+  // to read four values: BTCpuProcessInit already receives the CRT-compatible
+  // environment through _environ, so parse it directly.
+  size_t NameLength {};
+  while (Name[NameLength]) {
+    ++NameLength;
   }
-  char* End {};
-  return static_cast<uint64_t>(strtoull(Buffer, &End, 16));
+
+  for (char** Entry = _environ; Entry && *Entry; ++Entry) {
+    const char* Text = *Entry;
+    size_t Index {};
+    while (Index < NameLength && Text[Index] == Name[Index]) {
+      ++Index;
+    }
+    if (Index != NameLength || Text[Index] != '=') {
+      continue;
+    }
+
+    uint64_t Value {};
+    bool SawDigit {};
+    for (const char* Digit = Text + Index + 1; *Digit; ++Digit) {
+      uint8_t Nibble {};
+      if (*Digit >= '0' && *Digit <= '9') Nibble = static_cast<uint8_t>(*Digit - '0');
+      else if (*Digit >= 'a' && *Digit <= 'f') Nibble = static_cast<uint8_t>(*Digit - 'a' + 10);
+      else if (*Digit >= 'A' && *Digit <= 'F') Nibble = static_cast<uint8_t>(*Digit - 'A' + 10);
+      else return 0;
+      SawDigit = true;
+      if (Value > (UINT64_MAX >> 4)) return 0;
+      Value = (Value << 4) | Nibble;
+    }
+    return SawDigit ? Value : 0;
+  }
+  return 0;
 }
 
 void ConfigureGuestShadowMemory() {
