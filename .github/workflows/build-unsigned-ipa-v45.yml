@@ -1,4 +1,4 @@
-name: Build Madeira PE32 guest-shadow IPA v49
+name: Build Madeira PE32 guest-shadow IPA v50 fast
 
 on:
   workflow_dispatch:
@@ -25,145 +25,31 @@ concurrency:
 
 jobs:
   fex-and-probe:
-    name: Build FEX runtime and PE32 probe
+    name: Reuse verified FEX runtime and PE32 probe
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout builder
-        uses: actions/checkout@v4
+      - name: Reuse Run 26 FEX and PE32 probe
+        uses: actions/download-artifact@v4
         with:
-          persist-credentials: false
+          github-token: ${{ github.token }}
+          repository: trendbot305/madeira-pe32-ios-builder
+          run-id: 35489277110
+          name: fex-and-pe32-probe
+          path: out/fex
 
-      - name: Checkout pinned Madeira recursively
-        uses: actions/checkout@v4
-        with:
-          repository: willfaust/Madeira
-          ref: 97e2ce26e6dc9e4a38976f3b5deb9272d64558eb
-          path: external/Madeira
-          submodules: recursive
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Apply FEX guest-memory translation patch
+      - name: Verify reused FEX/probe payload
         run: |
-          git -C external/Madeira/FEX apply --check "$GITHUB_WORKSPACE/patches/fex-darwin-guest-memory-bias-stage3.patch"
-          git -C external/Madeira/FEX apply "$GITHUB_WORKSPACE/patches/fex-darwin-guest-memory-bias-stage3.patch"
-          python3 "$GITHUB_WORKSPACE/tools/patch_fex_guest_shadow_stage4.py" external/Madeira/FEX
-          grep -q "SetGuestMemoryAddressBias" external/Madeira/FEX/FEXCore/include/FEXCore/Core/Context.h
-          grep -q "Guest-shadow atomic add requires host LSE atomics" external/Madeira/FEX/FEXCore/Source/Interface/Core/JIT/AtomicOps.cpp
+          set -euo pipefail
+          test -n "$(find out/fex -type f -name 'libwow64fex.dll' -print -quit)"
+          test -n "$(find out/fex -type f -name 'xtajit.dll' -print -quit)"
+          test -n "$(find out/fex -type f -name 'madeira-pe32-probe.exe' -print -quit)"
+          echo "Reusing verified Run 26 FEX/probe; no FEX source or probe inputs changed."
 
-      - name: Install host dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build xz-utils python3 file
-
-      - name: Download verified llvm-mingw
-        run: |
-          mkdir -p toolchains
-          curl -L --fail --retry 3 \
-            https://github.com/mstorsjo/llvm-mingw/releases/download/20260421/llvm-mingw-20260421-ucrt-ubuntu-22.04-x86_64.tar.xz \
-            -o /tmp/llvm-mingw.tar.xz
-          echo "f8b8cce779affeab47bcaec6ce6e9e768b166094a366123ef64b2d0b389cc121  /tmp/llvm-mingw.tar.xz" | sha256sum -c -
-          tar -xJf /tmp/llvm-mingw.tar.xz -C toolchains
-          TOOLCHAIN_DIR="$(find "$PWD/toolchains" -maxdepth 1 -type d -name 'llvm-mingw-*' | head -1)"
-          test -n "$TOOLCHAIN_DIR"
-          echo "$TOOLCHAIN_DIR/bin" >> "$GITHUB_PATH"
-
-      - name: Patch pinned FEX diagnostics for standalone WoW64
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path("external/Madeira/FEX/FEXCore/Source/Interface/Core/Core.cpp")
-          s = p.read_text()
-          marker = "#ifdef FEX_IOS_HOST\n  /* iOS-Madeira ml316: report ExitToX64"
-          if marker not in s:
-              s = s.replace(
-                  "  /* iOS-Madeira ml316: report ExitToX64",
-                  "#ifdef FEX_IOS_HOST\n  /* iOS-Madeira ml316: report ExitToX64",
-                  1,
-              )
-              s = s.replace(
-                  "  /* iOS-Madeira: refuse to compile obviously-invalid guest RIPs.",
-                  "#endif // FEX_IOS_HOST\n\n  /* iOS-Madeira: refuse to compile obviously-invalid guest RIPs.",
-                  1,
-              )
-          # The FFS/callback diagnostic arrays are defined by the Windows
-          # ARM64EC frontend only. Native iOS FEXCore must not reference them.
-          s = s.replace(
-              "#ifdef FEX_IOS_HOST\n  /* iOS-Madeira ml316: report ExitToX64",
-              "#if defined(FEX_IOS_HOST) && defined(_WIN32)\n  /* iOS-Madeira ml316: report ExitToX64",
-          )
-          s = s.replace(
-              "uint64_t now = (uint64_t)time(NULL);",
-              "uint64_t now = 0; /* standalone WoW64 build: no CRT time() */",
-          )
-          p.write_text(s)
-          PY
-
-      - name: Configure and build FEX WoW64 runtime
-        run: |
-          cmake \
-            -S external/Madeira/FEX \
-            -B external/Madeira/FEX/build-wow64 \
-            -G Ninja \
-            -DCMAKE_TOOLCHAIN_FILE="$PWD/external/Madeira/FEX/Data/CMake/toolchain_mingw.cmake" \
-            -DMINGW_TRIPLE=aarch64-w64-mingw32 \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DTUNE_CPU=generic \
-            -DBUILD_TESTING=OFF \
-            -DENABLE_CCACHE=OFF \
-            -DENABLE_LTO=OFF \
-            -DENABLE_OFFLINE_TELEMETRY=OFF \
-            -DBUILD_FEX_LINUX_TESTS=OFF \
-            -DBUILD_THUNKS=OFF \
-            -DBUILD_FEXCONFIG=OFF
-          cmake --build external/Madeira/FEX/build-wow64 --target wow64fex --parallel 2
-
-      - name: Build and characterize synthetic PE32 guest
-        run: |
-          mkdir -p out/runtime
-          i686-w64-mingw32-clang -Os -s -nostdlib \
-            -Wl,--subsystem,console \
-            -Wl,--entry,_pe32_entry@0 \
-            integration/madeira/pe32_probe.c -lkernel32 \
-            -o out/runtime/madeira-pe32-probe.exe
-          python3 tools/pe_characterizer.py \
-            out/runtime/madeira-pe32-probe.exe \
-            -o out/runtime/madeira-pe32-probe.json
-          python3 - <<'PY'
-          import json
-          r = json.load(open("out/runtime/madeira-pe32-probe.json"))
-          assert r["pe"]["machine"] == "x86", r["pe"]
-          assert r["pe"]["format"] == "PE32", r["pe"]
-          dlls = {x["dll"].lower() for x in r["imports"]}
-          assert dlls == {"kernel32.dll"}, dlls
-          PY
-
-      - name: Collect and verify FEX runtime
-        run: |
-          DLL="$(find external/Madeira/FEX/build-wow64 -type f -iname '*wow64fex*.dll' | head -1)"
-          test -n "$DLL"
-          cp "$DLL" out/runtime/libwow64fex.dll
-          file out/runtime/libwow64fex.dll
-          aarch64-w64-mingw32-objdump -p out/runtime/libwow64fex.dll > out/runtime/libwow64fex-objdump.txt
-          for export in \
-            BTCpuGetBopCode BTCpuGetContext BTCpuIsProcessorFeaturePresent \
-            BTCpuProcessInit BTCpuThreadInit BTCpuResetToConsistentState \
-            BTCpuSetContext BTCpuSimulate BTCpuFlushInstructionCache2 \
-            BTCpuFlushInstructionCacheHeavy BTCpuNotifyMapViewOfSection \
-            BTCpuNotifyMemoryAlloc BTCpuNotifyMemoryDirty BTCpuNotifyMemoryFree \
-            BTCpuNotifyMemoryProtect BTCpuNotifyReadFile \
-            BTCpuNotifyUnmapViewOfSection BTCpuUpdateProcessorInformation \
-            BTCpuProcessTerm BTCpuThreadTerm __wine_get_unix_opcode; do
-            grep -q "$export" out/runtime/libwow64fex-objdump.txt
-          done
-          sha256sum out/runtime/libwow64fex.dll out/runtime/madeira-pe32-probe.exe \
-            > out/runtime/SHA256SUMS
-
-      - name: Upload FEX and probe
+      - name: Publish FEX/probe for device job
         uses: actions/upload-artifact@v4
         with:
           name: fex-and-pe32-probe
-          path: out/runtime
+          path: out/fex
           if-no-files-found: error
           retention-days: 7
 
