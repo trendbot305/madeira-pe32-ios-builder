@@ -215,13 +215,33 @@ static kern_return_t madeira_probe_anywhere(vm_size_t size, const char *name)
     return result;
 }
 
+static kern_return_t madeira_reserve_guest_shadow_fixed(vm_address_t requested,
+                                                            vm_size_t size,
+                                                            const char *name)
+{
+    vm_address_t address = requested;
+    kern_return_t result = vm_allocate(mach_task_self(), &address, size, VM_FLAGS_FIXED);
+    char stage[224];
+    if (result == KERN_SUCCESS) {
+        snprintf(stage, sizeof(stage), "%s_FIXED_OK_ADDR_0x%llx_SIZE_0x%llx",
+                 name, (unsigned long long)address, (unsigned long long)size);
+        madeira_bridge_checkpoint(stage);
+        madeira_publish_guest_shadow_arena(address, size, name);
+    } else {
+        snprintf(stage, sizeof(stage), "%s_FIXED_FAIL_ADDR_0x%llx_KR_%d",
+                 name, (unsigned long long)requested, (int)result);
+        madeira_bridge_checkpoint(stage);
+    }
+    return result;
+}
+
 static kern_return_t madeira_reserve_guest_shadow_anywhere(vm_size_t size, const char *name)
 {
     vm_address_t address = 0;
     kern_return_t result = vm_allocate(mach_task_self(), &address, size, VM_FLAGS_ANYWHERE);
     char stage[192];
     if (result == KERN_SUCCESS) {
-        snprintf(stage, sizeof(stage), "%s_RESERVE_OK_ADDR_0x%llx_SIZE_0x%llx",
+        snprintf(stage, sizeof(stage), "%s_ANYWHERE_OK_ADDR_0x%llx_SIZE_0x%llx",
                  name, (unsigned long long)address, (unsigned long long)size);
         madeira_bridge_checkpoint(stage);
         if (size == (vm_size_t)0x100000000ULL) {
@@ -230,7 +250,7 @@ static kern_return_t madeira_reserve_guest_shadow_anywhere(vm_size_t size, const
             (void)vm_deallocate(mach_task_self(), address, size);
         }
     } else {
-        snprintf(stage, sizeof(stage), "%s_RESERVE_FAIL_KR_%d", name, (int)result);
+        snprintf(stage, sizeof(stage), "%s_ANYWHERE_FAIL_KR_%d", name, (int)result);
         madeira_bridge_checkpoint(stage);
     }
     return result;
@@ -239,13 +259,49 @@ static kern_return_t madeira_reserve_guest_shadow_anywhere(vm_size_t size, const
 static void madeira_configure_guest_shadow_arena(void)
 {
     if (g_madeira_guest_shadow_base || getenv("WINE_IOS_FEX_GUEST_BIAS")) return;
-    if (madeira_reserve_guest_shadow_anywhere((vm_size_t)0x100000000ULL, "GUEST_SHADOW_4G") == KERN_SUCCESS
-        && g_madeira_guest_shadow_base) return;
+
+    /*
+     * Madeira's x64 guest/host window is 0x7000000000..0x8000000000.
+     * After the JIT pool is created its RW alias commonly begins at
+     * 0x7000000000 and ends around 0x7038000000. VM_FLAGS_ANYWHERE therefore
+     * hands a 4GiB request 0x7038000000 -- exactly the lowest remaining x64
+     * guest space. The native PE32 gate tolerates that, but full Wine/FEX
+     * subsequently needs the same low part of the window.
+     *
+     * Prefer the final 4GiB of the 480GiB slot (0x7b..0x7c). This keeps the
+     * low guest band available and stays below the 496GiB slot where Madeira
+     * documents Wine furniture clustering. If occupied, try the analogous
+     * tail of the 464GiB and 448GiB slots before falling back to ANYWHERE.
+     */
+    static const vm_address_t candidates[] = {
+        (vm_address_t)0x7b00000000ULL,
+        (vm_address_t)0x7700000000ULL,
+        (vm_address_t)0x7300000000ULL,
+    };
+
+    for (unsigned i = 0; i < sizeof(candidates) / sizeof(candidates[0]); ++i) {
+        char name[64];
+        snprintf(name, sizeof(name), "GUEST_SHADOW_4G_CANDIDATE_%u", i);
+        if (madeira_reserve_guest_shadow_fixed(candidates[i],
+                                               (vm_size_t)0x100000000ULL,
+                                               name) == KERN_SUCCESS
+            && g_madeira_guest_shadow_base) {
+            return;
+        }
+    }
+
+    if (madeira_reserve_guest_shadow_anywhere((vm_size_t)0x100000000ULL,
+                                              "GUEST_SHADOW_4G_FALLBACK") == KERN_SUCCESS
+        && g_madeira_guest_shadow_base) {
+        return;
+    }
 
     /* Probe-only fallbacks. These prove capacity but are not published until
      * sparse guest-page mapping is fully wired. */
-    (void)madeira_reserve_guest_shadow_anywhere((vm_size_t)0xC0000000ULL, "GUEST_SHADOW_3G_PROBE_ONLY");
-    (void)madeira_reserve_guest_shadow_anywhere((vm_size_t)0x80000000ULL, "GUEST_SHADOW_2G_PROBE_ONLY");
+    (void)madeira_reserve_guest_shadow_anywhere((vm_size_t)0xC0000000ULL,
+                                                "GUEST_SHADOW_3G_PROBE_ONLY");
+    (void)madeira_reserve_guest_shadow_anywhere((vm_size_t)0x80000000ULL,
+                                                "GUEST_SHADOW_2G_PROBE_ONLY");
     madeira_bridge_checkpoint("GUEST_SHADOW_LINEAR_4G_UNAVAILABLE_SPARSE_REQUIRED");
 }
 
