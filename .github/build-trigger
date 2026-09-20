@@ -43,3 +43,4 @@ run 57: restore LLVM 15 source headers for Madeira DXMT
 run 58: cache generated LLVM config headers for Madeira DXMT AirConv
 run 59: cache complete LLVM generated headers; reuse all proven runtime caches
 run 60: generate AirConv Metal headers and reuse stable caches
+run 61: verify SysWOW64 probe path and cached runtime payload
