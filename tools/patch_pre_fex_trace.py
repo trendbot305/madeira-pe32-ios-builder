@@ -396,6 +396,57 @@ for line in lines:
 newbody = "".join(out)
 s = s[:start] + newbody + s[end:]
 print(f"Installed {statement_no} Wine-process statement checkpoints")
+
+# The device reached WINEPROC_STEP_03_BEGIN but the live wineserver log also
+# showed create_process/create_thread activity. Make the launcher-side logging
+# robust (use the owned duplicate, not the caller's temporary pointer) and add
+# descriptive checkpoints on the actual Wine worker thread so the next crash
+# cannot be mis-attributed to the handoff thread.
+owned_old = '    g_prefix_path = strdup(prefix_path);\n\n    madeira_bridge_checkpoint("WINEPROC_STEP_03_BEGIN");\n    LOG("Starting Wine process with prefix: %{public}s", prefix_path);'
+owned_new = '    g_prefix_path = strdup(prefix_path);\n    if (!g_prefix_path) {\n        madeira_bridge_checkpoint("WINEPROC_PREFIX_DUP_FAIL");\n        return -1;\n    }\n\n    madeira_bridge_checkpoint("WINEPROC_STEP_03_BEGIN");\n    LOG("Starting Wine process with prefix: %{public}s", g_prefix_path);'
+if owned_old not in s:
+    raise SystemExit("owned-prefix launcher anchor missing")
+s = s.replace(owned_old, owned_new, 1)
+
+worker_replacements = [
+    (
+        'static void *wine_process_thread(void *arg) {\n    @autoreleasepool {',
+        'static void *wine_process_thread(void *arg) {\n    madeira_bridge_checkpoint("WINE_THREAD_ENTER");\n    @autoreleasepool {',
+    ),
+    (
+        '        pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);',
+        '        pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);\n        madeira_bridge_checkpoint("WINE_THREAD_QOS_OK");',
+    ),
+    (
+        '        madeira_seed_prefix_if_needed(g_prefix_path);',
+        '        madeira_bridge_checkpoint("WINE_THREAD_PREFIX_SEED_BEGIN");\n        madeira_seed_prefix_if_needed(g_prefix_path);\n        madeira_bridge_checkpoint("WINE_THREAD_PREFIX_SEED_OK");',
+    ),
+    (
+        '        setenv("WINELOADERNOEXEC", "1", 1);',
+        '        setenv("WINELOADERNOEXEC", "1", 1);\n        madeira_bridge_checkpoint("WINE_THREAD_BASE_ENV_READY");',
+    ),
+    (
+        '        LOG("Target exe: %{public}s (bundle=%{public}s)", madeira_exe, bundle_subdir);',
+        '        LOG("Target exe: %{public}s (bundle=%{public}s)", madeira_exe, bundle_subdir);\n        madeira_bridge_checkpoint("WINE_THREAD_TARGET_SELECTED");',
+    ),
+    (
+        '        wine_ios_exit_initialized = 1;',
+        '        wine_ios_exit_initialized = 1;\n        madeira_bridge_checkpoint("WINE_THREAD_EXIT_GUARD_READY");',
+    ),
+    (
+        '        LOG("Calling __wine_main...");',
+        '        madeira_bridge_checkpoint("WINE_THREAD_BEFORE_WINE_MAIN");\n        LOG("Calling __wine_main...");',
+    ),
+    (
+        '        if (setjmp(wine_ios_exit_jmpbuf) == 0) {\n            __wine_main(argc, argv);',
+        '        if (setjmp(wine_ios_exit_jmpbuf) == 0) {\n            madeira_bridge_checkpoint("WINE_THREAD_WINE_MAIN_ENTER");\n            __wine_main(argc, argv);\n            madeira_bridge_checkpoint("WINE_THREAD_WINE_MAIN_RETURN");',
+    ),
+]
+for old, new in worker_replacements:
+    if old not in s:
+        raise SystemExit(f"Wine worker checkpoint anchor missing: {old[:80]!r}")
+    s = s.replace(old, new, 1)
+
 for include in ("#include <fcntl.h>", "#include <unistd.h>", "#include <mach/mach.h>", "#include <stdlib.h>"):
     if include not in s:
         s = include + "\n" + s
