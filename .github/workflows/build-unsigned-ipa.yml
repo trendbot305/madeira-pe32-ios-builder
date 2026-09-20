@@ -18,7 +18,6 @@ concurrency:
 
 jobs:
   fex-and-probe:
-    if: false # Reuse verified artifacts from run 9 while debugging the iOS job.
     name: Build FEX runtime and PE32 probe
     runs-on: ubuntu-22.04
     steps:
@@ -154,7 +153,6 @@ jobs:
           retention-days: 7
 
   wine-modules:
-    if: false # Reuse verified artifacts from run 9 while debugging the iOS job.
     name: Build minimal Wine WoW64 modules
     runs-on: windows-latest
     steps:
@@ -176,6 +174,7 @@ jobs:
           retention-days: 7
 
   device-ipa:
+    needs: [fex-and-probe, wine-modules]
     name: Build unsigned iPhone IPA
     runs-on: macos-latest
     steps:
@@ -184,13 +183,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Checkout pinned Madeira + Wine only
+      - name: Checkout pinned Madeira runtime forks
         run: |
           mkdir -p external
           git clone --filter=blob:none --no-checkout https://github.com/willfaust/Madeira.git external/Madeira
           git -C external/Madeira fetch --depth 1 origin 97e2ce26e6dc9e4a38976f3b5deb9272d64558eb
           git -C external/Madeira checkout --detach FETCH_HEAD
-          git -C external/Madeira submodule update --init --recursive --depth 1 wine
+          git -C external/Madeira submodule update --init --recursive --depth 1 wine research/dxmt
 
       - name: Add persistent runtime crash checkpoints
         run: |
@@ -469,25 +468,27 @@ jobs:
         id: cache-dxmt
         uses: actions/cache/restore@v4
         with:
-          path: external/Madeira/app/Madeira/libdxmt_combined.a
-          key: dxmt-ios-winios-7be78cf3-llvm15-ios-v1
+          path: |
+            external/Madeira/build/dxmt-ios
+            external/Madeira/app/Madeira/libdxmt_combined.a
+          key: dxmt-ios-madeira-97e2ce26-llvm15-ios-v1
 
-      - name: Assemble DXMT with iOS LLVM archives
+      - name: Build Madeira DXMT fork for iOS
         if: steps.cache-dxmt.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          echo "Combining WiniOS iOS DXMT objects with LLVM 15 built for iOS arm64."
-          curl --fail --location --retry 3 \
-            -o /tmp/libdxmt_unix.a \
-            https://raw.githubusercontent.com/yanyantukebo1224/WiniOS/7be78cf3b6ad9fefbe5a98bb037785236e7dd36c/app/libdxmt_unix.a
-          test -s /tmp/libdxmt_unix.a
+          echo "Building DXMT from Madeira's pinned research/dxmt ios-port submodule."
+          test -d external/Madeira/research/dxmt
+          bash external/Madeira/build/dxmt-ios/build.sh
+          test -s external/Madeira/build/dxmt-ios/libdxmt_unix.a
           LLVM_LIST=/tmp/llvm15-ios-static-libs.txt
           find external/Madeira/toolchains/llvm-ios-build/lib -type f -name 'libLLVM*.a' -print | sort > "$LLVM_LIST"
           test -s "$LLVM_LIST"
-          echo "LLVM iOS static archives: $(wc -l < "$LLVM_LIST" | tr -d ' ')"
           xargs xcrun -sdk iphoneos libtool -static \
-            -o external/Madeira/app/Madeira/libdxmt_combined.a \
-            /tmp/libdxmt_unix.a < "$LLVM_LIST"
+            -o external/Madeira/build/dxmt-ios/libdxmt_combined.a \
+            external/Madeira/build/dxmt-ios/libdxmt_unix.a < "$LLVM_LIST"
+          cp external/Madeira/build/dxmt-ios/libdxmt_combined.a \
+             external/Madeira/app/Madeira/libdxmt_combined.a
           test -s external/Madeira/app/Madeira/libdxmt_combined.a
           file external/Madeira/app/Madeira/libdxmt_combined.a
 
@@ -501,7 +502,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: external/Madeira/app/Madeira/libdxmt_combined.a
-          key: dxmt-ios-winios-7be78cf3-llvm15-ios-v1
+          key: dxmt-ios-madeira-97e2ce26-llvm15-ios-v1
 
       - name: Native cache reuse summary
         run: |
@@ -517,18 +518,12 @@ jobs:
       - name: Download FEX and probe
         uses: actions/download-artifact@v4
         with:
-          github-token: ${{ github.token }}
-          repository: trendbot305/madeira-pe32-ios-builder
-          run-id: 35462377249
           name: fex-and-pe32-probe
           path: kit/fex
 
       - name: Download Wine modules
         uses: actions/download-artifact@v4
         with:
-          github-token: ${{ github.token }}
-          repository: trendbot305/madeira-pe32-ios-builder
-          run-id: 35462377249
           name: wine-wow64-modules
           path: kit/wine
 
