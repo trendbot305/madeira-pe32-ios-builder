@@ -15,8 +15,17 @@ func madeiraEarlyCheckpoint(_ stage: String) {
         guard let docs = FileManager.default.urls(for: .documentDirectory,
                                                    in: .userDomainMask).first else { return }
         let url = docs.appendingPathComponent("madeira-crash-checkpoints.txt")
-        let line = String(format: "%.3f | pid=%d | %@\n",
-                          Date().timeIntervalSince1970, getpid(), stage)
+        let sessionURL = docs.appendingPathComponent("madeira-crash-session.txt")
+        let session: String
+        if let existing = try? String(contentsOf: sessionURL, encoding: .utf8),
+           !existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            session = existing.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            session = String(format: "%.0f-%d", Date().timeIntervalSince1970 * 1000, getpid())
+            try? session.write(to: sessionURL, atomically: true, encoding: .utf8)
+        }
+        let line = String(format: "%.3f | session=%@ | pid=%d | %@\n",
+                          Date().timeIntervalSince1970, session, getpid(), stage)
         guard let data = line.data(using: .utf8) else { return }
         if !FileManager.default.fileExists(atPath: url.path) {
             FileManager.default.createFile(atPath: url.path, contents: nil)
@@ -58,6 +67,12 @@ s = app_file.read_text(encoding="utf-8")
 old = "struct MadeiraApp: App {\n    var body: some Scene {"
 new = '''struct MadeiraApp: App {
     init() {
+        if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            let sessionURL = docs.appendingPathComponent("madeira-crash-session.txt")
+            let session = String(format: "%.0f-%d", Date().timeIntervalSince1970 * 1000, getpid())
+            try? session.write(to: sessionURL, atomically: true, encoding: .utf8)
+        }
+        madeiraEarlyCheckpoint("=== APP_SESSION_BEGIN ===")
         madeiraEarlyCheckpoint("APP_INIT_ENTER")
         let lowVAResult = madeira_low_va_probe()
         madeiraEarlyCheckpoint(lowVAResult == 1 ? "LOW_VA_PROBE_OK" : "LOW_VA_PROBE_FAIL_\\(lowVAResult)")
@@ -90,13 +105,17 @@ static void madeira_bridge_checkpoint(const char *stage)
                                                               NSUserDomainMask, YES).firstObject;
         if (!docs) return;
         NSString *path = [docs stringByAppendingPathComponent:@"madeira-crash-checkpoints.txt"];
+        NSString *sessionPath = [docs stringByAppendingPathComponent:@"madeira-crash-session.txt"];
+        NSString *session = [NSString stringWithContentsOfFile:sessionPath encoding:NSUTF8StringEncoding error:nil];
+        session = [session stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (!session.length) session = [NSString stringWithFormat:@"unknown-%d", getpid()];
         strlcpy(madeira_bridge_checkpoint_path, path.fileSystemRepresentation,
                 sizeof(madeira_bridge_checkpoint_path));
         int fd = open(path.fileSystemRepresentation, O_CREAT | O_WRONLY | O_APPEND, 0600);
         if (fd < 0) return;
         char line[256];
-        int count = snprintf(line, sizeof(line), "%.3f | pid=%d | %s\n",
-                             [NSDate date].timeIntervalSince1970, getpid(),
+        int count = snprintf(line, sizeof(line), "%.3f | session=%s | pid=%d | %s\n",
+                             [NSDate date].timeIntervalSince1970, session.UTF8String, getpid(),
                              stage ? stage : "(null)");
         if (count > 0) {
             size_t length = (size_t)count < sizeof(line) ? (size_t)count : sizeof(line) - 1;
