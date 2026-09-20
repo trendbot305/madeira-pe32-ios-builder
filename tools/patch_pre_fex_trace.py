@@ -52,6 +52,54 @@ for old, new in replacements:
     if old not in s:
         raise SystemExit(f"ContentView marker missing: {old!r}")
     s = s.replace(old, new, 1)
+# Reserve the PE32 shadow only AFTER Madeira's large JIT pool has selected
+# its aliases. The v49 startup reservation grabbed 0x7000000000 first, which is
+# the exact band StikJITHelper normally uses for the pool RW alias.
+pool_old = """            let pool = StikJITHelper.allocatePool(poolSize: poolSizeMB * 1024 * 1024)
+            let elapsed = CFAbsoluteTimeGetCurrent() - t0
+            winios_phase("pool-ready")
+            logStore.log("BRK suspension lasted \\(String(format: "%.2f", elapsed))s")"""
+pool_new = """            madeiraEarlyCheckpoint("WINESEQ_POOL_ALLOC_BEGIN")
+            let pool = StikJITHelper.allocatePool(poolSize: poolSizeMB * 1024 * 1024)
+            madeiraEarlyCheckpoint(pool != nil ? "WINESEQ_POOL_ALLOC_OK" : "WINESEQ_POOL_ALLOC_FAIL")
+            let elapsed = CFAbsoluteTimeGetCurrent() - t0
+            winios_phase("pool-ready")
+            logStore.log("BRK suspension lasted \\(String(format: "%.2f", elapsed))s")
+
+            if pool != nil {
+                let shadowReady = madeira_guest_shadow_ensure()
+                madeiraEarlyCheckpoint(shadowReady == 1
+                    ? "WINESEQ_GUEST_SHADOW_READY"
+                    : "WINESEQ_GUEST_SHADOW_FAIL")
+            }"""
+if pool_old not in s:
+    raise SystemExit("ContentView JIT-pool anchor missing")
+s = s.replace(pool_old, pool_new, 1)
+
+server_old = """            // Step 2: Start wineserver
+            self.startWineserver()
+            winios_phase("wineserver-up")"""
+server_new = """            // Step 2: Start wineserver
+            madeiraEarlyCheckpoint("WINESEQ_WINESERVER_START")
+            self.startWineserver()
+            madeiraEarlyCheckpoint("WINESEQ_WINESERVER_RETURN")
+            winios_phase("wineserver-up")"""
+if server_old not in s:
+    raise SystemExit("ContentView wineserver anchor missing")
+s = s.replace(server_old, server_new, 1)
+
+wine_old = """            Thread.sleep(forTimeInterval: 2.0)
+            winios_phase("wine-start")
+            self.startWineProcess()"""
+wine_new = """            Thread.sleep(forTimeInterval: 2.0)
+            winios_phase("wine-start")
+            madeiraEarlyCheckpoint("WINESEQ_WINE_PROCESS_START")
+            self.startWineProcess()
+            madeiraEarlyCheckpoint("WINESEQ_WINE_PROCESS_RETURN")"""
+if wine_old not in s:
+    raise SystemExit("ContentView Wine-process anchor missing")
+s = s.replace(wine_old, wine_new, 1)
+
 content_view.write_text(s, encoding="utf-8")
 
 s = app_file.read_text(encoding="utf-8")
@@ -69,12 +117,13 @@ if old not in s:
 app_file.write_text(s.replace(old, new, 1), encoding="utf-8")
 
 header = wine_header.read_text(encoding="utf-8")
-declaration = "int madeira_low_va_probe(void);"
-if declaration not in header:
+declarations = """int madeira_low_va_probe(void);
+int madeira_guest_shadow_ensure(void);"""
+if "int madeira_guest_shadow_ensure(void);" not in header:
     anchor = "int wine_process_start(const char *prefix_path);"
     if anchor not in header:
         raise SystemExit("WineProcessBridge header anchor missing")
-    header = header.replace(anchor, declaration + "\n" + anchor, 1)
+    header = header.replace(anchor, declarations + "\n" + anchor, 1)
 wine_header.write_text(header, encoding="utf-8")
 
 s = wine_bridge.read_text(encoding="utf-8")
@@ -200,6 +249,18 @@ static void madeira_configure_guest_shadow_arena(void)
     madeira_bridge_checkpoint("GUEST_SHADOW_LINEAR_4G_UNAVAILABLE_SPARSE_REQUIRED");
 }
 
+int madeira_guest_shadow_ensure(void)
+{
+    madeira_bridge_checkpoint("GUEST_SHADOW_ENSURE_BEGIN");
+    madeira_configure_guest_shadow_arena();
+    if (g_madeira_guest_shadow_base && getenv("WINE_IOS_FEX_GUEST_BIAS")) {
+        madeira_bridge_checkpoint("GUEST_SHADOW_ENSURE_OK");
+        return 1;
+    }
+    madeira_bridge_checkpoint("GUEST_SHADOW_ENSURE_FAIL");
+    return 0;
+}
+
 int madeira_low_va_probe(void)
 {
     const kern_return_t low = madeira_probe_fixed_window(
@@ -216,19 +277,11 @@ int madeira_low_va_probe(void)
     (void)madeira_probe_fixed_window(
         (vm_address_t)0x400000000ULL, (vm_size_t)0x4000, "BIAS_16G_PAGE");
 
-    /* Reserve the 4GiB candidate instead of probing it and immediately
-     * releasing it. This avoids creating a transient 4GiB hole and then
-     * depending on the identical region still being available moments later.
-     * On failure, configure_guest_shadow_arena performs the requested 3GiB/2GiB
-     * capacity probes and marks sparse fallback as required. */
-    madeira_configure_guest_shadow_arena();
-
-    if (g_madeira_guest_shadow_base) {
-        char stage[192];
-        snprintf(stage, sizeof(stage), "ANYWHERE_4G_OK_ADDR_0x%llx_SIZE_0x100000000",
-                 (unsigned long long)g_madeira_guest_shadow_base);
-        madeira_bridge_checkpoint(stage);
-    }
+    /* Capacity probes only. The real 4GiB shadow is held later, after the
+     * JIT pool has selected its RX/RW aliases. */
+    (void)madeira_probe_anywhere((vm_size_t)0x100000000ULL, "ANYWHERE_4G");
+    (void)madeira_probe_anywhere((vm_size_t)0xC0000000ULL, "ANYWHERE_3G");
+    (void)madeira_probe_anywhere((vm_size_t)0x80000000ULL, "ANYWHERE_2G");
     (void)madeira_probe_anywhere((vm_size_t)0x40000000ULL, "ANYWHERE_1G");
     (void)madeira_probe_anywhere((vm_size_t)0x20000000ULL, "ANYWHERE_512M");
     return low == KERN_SUCCESS ? 1 : -(int)low;
