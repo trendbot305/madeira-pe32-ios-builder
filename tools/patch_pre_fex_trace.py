@@ -76,7 +76,7 @@ if declaration not in header:
     anchor = "int wine_process_start(const char *prefix_path);"
     if anchor not in header:
         raise SystemExit("WineProcessBridge header anchor missing")
-    header = header.replace(anchor, declaration + "\\n" + anchor, 1)
+    header = header.replace(anchor, declaration + "\n" + anchor, 1)
 wine_header.write_text(header, encoding="utf-8")
 
 s = wine_bridge.read_text(encoding="utf-8")
@@ -101,6 +101,20 @@ static void madeira_bridge_checkpoint(const char *stage)
         }
         (void)close(fd);
     }
+}
+
+'''
+probe_function = r'''
+int madeira_low_va_probe(void)
+{
+    mach_vm_address_t address = 0x70000000ULL;
+    mach_vm_size_t size = 0x4000;
+    kern_return_t result = mach_vm_allocate(mach_task_self(), &address, size, VM_FLAGS_FIXED);
+    if (result == KERN_SUCCESS) {
+        (void)mach_vm_deallocate(mach_task_self(), address, size);
+        return 1;
+    }
+    return -(int)result;
 }
 
 '''
