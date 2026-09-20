@@ -125,6 +125,24 @@ def patch_wine_process_bridge(bridge: Path) -> None:
     if '{ "syswow64", "i386-windows" }' not in text:
         raise SystemExit("Madeira SysWOW64 farm patch is incomplete")
 
+    # Verify the PE32 probe is physically reachable through the SysWOW64 farm
+    # before Wine enters __wine_main. This catches stale/missing bundle links.
+    old_log = '''                    dprintf(STDERR_FILENO, "[WineProc] Farm %s: %d links -> %s\\n",
+                            farms[i].farm, farmLinked, farms[i].arch);'''
+    new_log = '''                    dprintf(STDERR_FILENO, "[WineProc] Farm %s: %d links -> %s\\n",
+                            farms[i].farm, farmLinked, farms[i].arch);
+                    if (!strcmp(farms[i].farm, "syswow64")) {
+                        NSString *probe = [farmDir stringByAppendingPathComponent:@"madeira-pe32-probe.exe"];
+                        BOOL isDir = NO;
+                        BOOL exists = [fm fileExistsAtPath:probe isDirectory:&isDir] && !isDir;
+                        dprintf(STDERR_FILENO, "[WineProc] SysWOW64 probe path: %s exists=%d\\n",
+                                probe.UTF8String, exists ? 1 : 0);
+                    }'''
+    if "SysWOW64 probe path:" not in text:
+        if old_log not in text:
+            raise SystemExit("Could not add SysWOW64 probe verification")
+        text = text.replace(old_log, new_log, 1)
+
     bridge.write_text(text, encoding="utf-8")
 
 
