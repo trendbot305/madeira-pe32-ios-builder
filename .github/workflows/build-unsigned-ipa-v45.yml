@@ -1,14 +1,16 @@
-name: Build Madeira PE32 low-VA test IPA v48
+name: Build Madeira PE32 guest-shadow IPA v49
 
 on:
   workflow_dispatch:
   push:
     branches:
       - main
+      - guest-shadow-v49
     paths:
       - ".github/workflows/build-unsigned-ipa-v45.yml"
       - "tools/patch_macho_pagezero.py"
       - "tools/patch_pre_fex_trace.py"
+      - "patches/fex-darwin-guest-memory-bias-stage3.patch"
 
 permissions:
   actions: read
@@ -20,7 +22,6 @@ concurrency:
 
 jobs:
   fex-and-probe:
-    if: false # Reuse verified artifacts from run 9 while debugging the iOS job.
     name: Build FEX runtime and PE32 probe
     runs-on: ubuntu-22.04
     steps:
@@ -38,6 +39,12 @@ jobs:
           submodules: recursive
           fetch-depth: 1
           persist-credentials: false
+
+      - name: Apply FEX guest-memory translation patch
+        run: |
+          git -C external/Madeira/FEX apply --check "$GITHUB_WORKSPACE/patches/fex-darwin-guest-memory-bias-stage3.patch"
+          git -C external/Madeira/FEX apply "$GITHUB_WORKSPACE/patches/fex-darwin-guest-memory-bias-stage3.patch"
+          grep -q "SetGuestMemoryAddressBias" external/Madeira/FEX/FEXCore/include/FEXCore/Core/Context.h
 
       - name: Install host dependencies
         run: |
@@ -179,6 +186,7 @@ jobs:
 
   device-ipa:
     name: Build unsigned iPhone IPA
+    needs: fex-and-probe
     runs-on: macos-latest
     steps:
       - name: Checkout builder
@@ -356,12 +364,20 @@ jobs:
             external/Madeira/.git/modules/FEX
           key: fex-source-${{ runner.os }}-97e2ce26-recursive-v1
 
+      - name: Apply FEX guest-memory translation patch for native build
+        run: |
+          if ! grep -q "SetGuestMemoryAddressBias" external/Madeira/FEX/FEXCore/include/FEXCore/Core/Context.h; then
+            git -C external/Madeira/FEX apply --check "$GITHUB_WORKSPACE/patches/fex-darwin-guest-memory-bias-stage3.patch"
+            git -C external/Madeira/FEX apply "$GITHUB_WORKSPACE/patches/fex-darwin-guest-memory-bias-stage3.patch"
+          fi
+          grep -q "SetGuestMemoryAddressBias" external/Madeira/FEX/FEXCore/include/FEXCore/Core/Context.h
+
       - name: Restore native FEX cache
         id: cache-fex
         uses: actions/cache/restore@v4
         with:
           path: external/Madeira/FEX/build-ios
-          key: fex-ios-${{ runner.os }}-97e2ce26-native-guards-v2
+          key: fex-ios-${{ runner.os }}-97e2ce26-guest-bias-v1-${{ hashFiles('patches/fex-darwin-guest-memory-bias-stage3.patch') }}
 
       - name: Guard ARM64EC-only diagnostics in native iOS FEX
         if: steps.cache-fex.outputs.cache-hit != 'true'
@@ -435,7 +451,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: external/Madeira/FEX/build-ios
-          key: fex-ios-${{ runner.os }}-97e2ce26-native-guards-v2
+          key: fex-ios-${{ runner.os }}-97e2ce26-guest-bias-v1-${{ hashFiles('patches/fex-darwin-guest-memory-bias-stage3.patch') }}
 
       - name: Restore native wineserver cache
         id: cache-wineserver
@@ -540,9 +556,6 @@ jobs:
       - name: Download FEX and probe
         uses: actions/download-artifact@v4
         with:
-          github-token: ${{ github.token }}
-          repository: trendbot305/madeira-pe32-ios-builder
-          run-id: 35462377249
           name: fex-and-pe32-probe
           path: kit/fex
 
