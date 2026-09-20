@@ -1,4 +1,4 @@
-name: Build unsigned Madeira PE32 IPA v45
+name: Build Madeira PE32 low-VA test IPA v48
 
 on:
   workflow_dispatch:
@@ -7,6 +7,8 @@ on:
       - main
     paths:
       - ".github/workflows/build-unsigned-ipa-v45.yml"
+      - "tools/patch_macho_pagezero.py"
+      - "tools/patch_pre_fex_trace.py"
 
 permissions:
   actions: read
@@ -634,27 +636,48 @@ jobs:
       - name: Build unsigned device app
         run: |
           xcodebuild -version
-          rm -rf build Payload Madeira-PE32-unsigned.ipa
+          rm -rf build package-standard package-lowva Madeira-PE32-unsigned.ipa Madeira-PE32-lowva-unsigned.ipa
           xcodebuild             -project external/Madeira/app/Madeira.xcodeproj             -scheme Madeira             -configuration Release             -sdk iphoneos             -destination 'generic/platform=iOS'             -derivedDataPath "$PWD/build/DerivedData"             CODE_SIGNING_ALLOWED=NO             CODE_SIGNING_REQUIRED=NO             IPHONEOS_DEPLOYMENT_TARGET=18.0             build
 
-      - name: Package unsigned IPA
+      - name: Package baseline and low-VA unsigned IPAs
         run: |
+          set -euo pipefail
           APP="$(find build/DerivedData/Build/Products/Release-iphoneos -maxdepth 1 -type d -name '*.app' | head -1)"
           test -n "$APP"
-          mkdir -p Payload
-          cp -R "$APP" Payload/
-          /usr/bin/zip -qry Madeira-PE32-unsigned.ipa Payload
-          shasum -a 256 Madeira-PE32-unsigned.ipa > Madeira-PE32-unsigned.ipa.sha256
-          /usr/bin/du -h Madeira-PE32-unsigned.ipa
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' Payload/*.app/Info.plist
+          APP_NAME="$(basename "$APP")"
 
-      - name: Upload unsigned IPA
+          mkdir -p package-standard/Payload package-lowva/Payload
+          cp -R "$APP" package-standard/Payload/
+          cp -R "$APP" package-lowva/Payload/
+
+          LOWVA_APP="package-lowva/Payload/$APP_NAME"
+          EXECUTABLE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$LOWVA_APP/Info.plist")"
+          test -n "$EXECUTABLE_NAME"
+          python3 tools/patch_macho_pagezero.py "$LOWVA_APP/$EXECUTABLE_NAME" --size 0x4000
+
+          echo "Low-VA Mach-O layout:"
+          xcrun otool -l "$LOWVA_APP/$EXECUTABLE_NAME" | awk '
+            $1 == "segname" && $2 == "__PAGEZERO" { show=1; print; next }
+            show && ($1 == "vmaddr" || $1 == "vmsize" || $1 == "fileoff" || $1 == "filesize") { print }
+            show && $1 == "maxprot" { exit }
+          '
+
+          (cd package-standard && /usr/bin/zip -qry ../Madeira-PE32-unsigned.ipa Payload)
+          (cd package-lowva && /usr/bin/zip -qry ../Madeira-PE32-lowva-unsigned.ipa Payload)
+          shasum -a 256 Madeira-PE32-unsigned.ipa > Madeira-PE32-unsigned.ipa.sha256
+          shasum -a 256 Madeira-PE32-lowva-unsigned.ipa > Madeira-PE32-lowva-unsigned.ipa.sha256
+          /usr/bin/du -h Madeira-PE32-unsigned.ipa Madeira-PE32-lowva-unsigned.ipa
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$LOWVA_APP/Info.plist"
+
+      - name: Upload baseline and low-VA unsigned IPAs
         uses: actions/upload-artifact@v4
         with:
-          name: Madeira-PE32-unsigned-IPA
+          name: Madeira-PE32-lowva-test-IPA
           path: |
             Madeira-PE32-unsigned.ipa
             Madeira-PE32-unsigned.ipa.sha256
+            Madeira-PE32-lowva-unsigned.ipa
+            Madeira-PE32-lowva-unsigned.ipa.sha256
             out/madeira-pe32-device-manifest.json
           if-no-files-found: error
           retention-days: 7
