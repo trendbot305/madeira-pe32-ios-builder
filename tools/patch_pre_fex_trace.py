@@ -320,14 +320,19 @@ static kern_return_t madeira_reserve_guest_shadow_fixed(vm_address_t requested,
                                                             vm_size_t size,
                                                             const char *name)
 {
-    vm_address_t address = requested;
-    kern_return_t result = vm_allocate(mach_task_self(), &address, size, VM_FLAGS_FIXED);
+    mach_vm_address_t address = (mach_vm_address_t)requested;
+    mach_vm_size_t mach_size = (mach_vm_size_t)size;
     char stage[224];
+    snprintf(stage, sizeof(stage), "%s_FIXED_BEGIN_ADDR_0x%llx_SIZE_0x%llx",
+             name, (unsigned long long)address, (unsigned long long)mach_size);
+    madeira_bridge_checkpoint(stage);
+    kern_return_t result = mach_vm_allocate(mach_task_self(), &address, mach_size,
+                                             VM_FLAGS_FIXED);
     if (result == KERN_SUCCESS) {
         snprintf(stage, sizeof(stage), "%s_FIXED_OK_ADDR_0x%llx_SIZE_0x%llx",
-                 name, (unsigned long long)address, (unsigned long long)size);
+                 name, (unsigned long long)address, (unsigned long long)mach_size);
         madeira_bridge_checkpoint(stage);
-        madeira_publish_guest_shadow_arena(address, size, name);
+        madeira_publish_guest_shadow_arena((vm_address_t)address, (vm_size_t)mach_size, name);
     } else {
         snprintf(stage, sizeof(stage), "%s_FIXED_FAIL_ADDR_0x%llx_KR_%d",
                  name, (unsigned long long)requested, (int)result);
@@ -338,17 +343,22 @@ static kern_return_t madeira_reserve_guest_shadow_fixed(vm_address_t requested,
 
 static kern_return_t madeira_reserve_guest_shadow_anywhere(vm_size_t size, const char *name)
 {
-    vm_address_t address = 0;
-    kern_return_t result = vm_allocate(mach_task_self(), &address, size, VM_FLAGS_ANYWHERE);
+    mach_vm_address_t address = 0;
+    mach_vm_size_t mach_size = (mach_vm_size_t)size;
     char stage[192];
+    snprintf(stage, sizeof(stage), "%s_ANYWHERE_BEGIN_SIZE_0x%llx",
+             name, (unsigned long long)mach_size);
+    madeira_bridge_checkpoint(stage);
+    kern_return_t result = mach_vm_allocate(mach_task_self(), &address, mach_size,
+                                             VM_FLAGS_ANYWHERE);
     if (result == KERN_SUCCESS) {
         snprintf(stage, sizeof(stage), "%s_ANYWHERE_OK_ADDR_0x%llx_SIZE_0x%llx",
-                 name, (unsigned long long)address, (unsigned long long)size);
+                 name, (unsigned long long)address, (unsigned long long)mach_size);
         madeira_bridge_checkpoint(stage);
-        if (size == (vm_size_t)0x100000000ULL) {
-            madeira_publish_guest_shadow_arena(address, size, name);
+        if (mach_size == (mach_vm_size_t)0x100000000ULL) {
+            madeira_publish_guest_shadow_arena((vm_address_t)address, (vm_size_t)mach_size, name);
         } else {
-            (void)vm_deallocate(mach_task_self(), address, size);
+            (void)mach_vm_deallocate(mach_task_self(), address, mach_size);
         }
     } else {
         snprintf(stage, sizeof(stage), "%s_ANYWHERE_FAIL_KR_%d", name, (int)result);
