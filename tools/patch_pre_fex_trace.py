@@ -105,16 +105,43 @@ static void madeira_bridge_checkpoint(const char *stage)
 
 '''
 probe_function = r'''
+static kern_return_t madeira_probe_fixed_window(vm_address_t requested,
+                                                   vm_size_t size,
+                                                   const char *name)
+{
+    vm_address_t address = requested;
+    kern_return_t result = vm_allocate(mach_task_self(), &address, size, VM_FLAGS_FIXED);
+    char stage[160];
+    if (result == KERN_SUCCESS) {
+        snprintf(stage, sizeof(stage), "%s_OK_0x%llx_0x%llx",
+                 name, (unsigned long long)address, (unsigned long long)size);
+        madeira_bridge_checkpoint(stage);
+        (void)vm_deallocate(mach_task_self(), address, size);
+    } else {
+        snprintf(stage, sizeof(stage), "%s_FAIL_KR_%d",
+                 name, (int)result);
+        madeira_bridge_checkpoint(stage);
+    }
+    return result;
+}
+
 int madeira_low_va_probe(void)
 {
-    vm_address_t address = 0x70000000ULL;
-    vm_size_t size = 0x4000;
-    kern_return_t result = vm_allocate(mach_task_self(), &address, size, VM_FLAGS_FIXED);
-    if (result == KERN_SUCCESS) {
-        (void)vm_deallocate(mach_task_self(), address, size);
-        return 1;
-    }
-    return -(int)result;
+    const kern_return_t low = madeira_probe_fixed_window(
+        (vm_address_t)0x70000000ULL, (vm_size_t)0x4000, "LOW_VA_1792M");
+
+    (void)madeira_probe_fixed_window(
+        (vm_address_t)0x200000000ULL, (vm_size_t)0x4000, "BIAS_8G_PAGE");
+    (void)madeira_probe_fixed_window(
+        (vm_address_t)0x280000000ULL, (vm_size_t)0x4000, "BIAS_10G_PAGE");
+    (void)madeira_probe_fixed_window(
+        (vm_address_t)0x300000000ULL, (vm_size_t)0x4000, "BIAS_12G_PAGE");
+    (void)madeira_probe_fixed_window(
+        (vm_address_t)0x300000000ULL, (vm_size_t)0x80000000ULL, "BIAS_12G_2G");
+    (void)madeira_probe_fixed_window(
+        (vm_address_t)0x400000000ULL, (vm_size_t)0x4000, "BIAS_16G_PAGE");
+
+    return low == KERN_SUCCESS ? 1 : -(int)low;
 }
 
 '''
