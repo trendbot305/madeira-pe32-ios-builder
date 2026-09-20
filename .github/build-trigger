@@ -40,3 +40,4 @@ run 43: instrumented runtime debug IPA with frozen caches
 run 44: Foundation import fix for runtime checkpoints
 run 56: Madeira upstream parity — rebuild pinned FEX/Wine and use Madeira DXMT fork
 run 57: restore LLVM 15 source headers for Madeira DXMT
+run 58: cache generated LLVM config headers for Madeira DXMT AirConv
