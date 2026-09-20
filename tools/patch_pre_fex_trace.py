@@ -352,6 +352,50 @@ if "static void madeira_bridge_checkpoint(" not in s:
 s = s.replace(signature,
               signature + '    madeira_bridge_checkpoint("WINE_PROCESS_START_ENTER");\n',
               1)
+
+# Narrow the crash after WINE_PROCESS_START_ENTER. These checkpoints surround
+# the major statements in wine_process_start without changing their behavior.
+# Keep this patch source-driven so we can iterate without rebuilding Wine/FEX.
+start = s.index(signature)
+if start < 0:
+    raise SystemExit("wine_process_start disappeared after instrumentation")
+brace = s.index("{", start)
+depth = 0
+end = None
+for i in range(brace, len(s)):
+    if s[i] == "{":
+        depth += 1
+    elif s[i] == "}":
+        depth -= 1
+        if depth == 0:
+            end = i + 1
+            break
+if end is None:
+    raise SystemExit("could not bound wine_process_start")
+body = s[start:end]
+lines = body.splitlines(True)
+out = []
+statement_no = 0
+for line in lines:
+    stripped = line.strip()
+    # Instrument only top-level-looking executable statements. Avoid labels,
+    # braces, declarations, logging/checkpoint calls and control-flow headers.
+    indent = len(line) - len(line.lstrip())
+    eligible = (
+        indent == 4 and stripped and stripped.endswith(";")
+        and not stripped.startswith(("//", "#", "return ", "madeira_bridge_checkpoint("))
+        and not stripped.startswith(("char ", "int ", "BOOL ", "NSString ", "NSURL ", "NSError ", "dispatch_", "const "))
+    )
+    if eligible:
+        statement_no += 1
+        out.append(f'    madeira_bridge_checkpoint("WINEPROC_STEP_{statement_no:02d}_BEGIN");\\n')
+        out.append(line)
+        out.append(f'    madeira_bridge_checkpoint("WINEPROC_STEP_{statement_no:02d}_OK");\\n')
+    else:
+        out.append(line)
+newbody = "".join(out)
+s = s[:start] + newbody + s[end:]
+print(f"Installed {statement_no} Wine-process statement checkpoints")
 for include in ("#include <fcntl.h>", "#include <unistd.h>", "#include <mach/mach.h>", "#include <stdlib.h>"):
     if include not in s:
         s = include + "\n" + s
