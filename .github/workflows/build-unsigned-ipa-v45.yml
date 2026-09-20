@@ -12,7 +12,7 @@ on:
 
 permissions:
   actions: read
-  contents: read
+  contents: write
 
 concurrency:
   group: madeira-pe32-public-build
@@ -667,3 +667,16 @@ jobs:
             out/madeira-pe32-device-manifest.json
           if-no-files-found: error
           retention-days: 7
+
+      - name: Publish raw IPA as latest GitHub Release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view madeira-pe32-latest >/dev/null 2>&1 || \
+            gh release create madeira-pe32-latest \
+              --title "Latest Madeira PE32 IPA" \
+              --notes "Latest successful unsigned IPA from the builder workflow."
+          gh release upload madeira-pe32-latest \
+            Madeira-PE32-unsigned.ipa \
+            Madeira-PE32-unsigned.ipa.sha256 \
+            --clobber
