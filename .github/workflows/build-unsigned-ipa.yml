@@ -479,7 +479,21 @@ jobs:
           set -euo pipefail
           echo "Building DXMT from Madeira's pinned research/dxmt ios-port submodule."
           test -d external/Madeira/research/dxmt
-          bash external/Madeira/build/dxmt-ios/build.sh
+          # Madeira's DXMT build expects the LLVM source headers alongside the
+          # cached iOS LLVM libraries. Restore the matching pinned LLVM 15.0.7 source.
+          if [ ! -f external/Madeira/toolchains/llvm-project/llvm/include/llvm/IR/Module.h ]; then
+            mkdir -p external/Madeira/toolchains
+            git clone --filter=blob:none --no-checkout --depth 1 --branch llvmorg-15.0.7 \
+              https://github.com/llvm/llvm-project.git external/Madeira/toolchains/llvm-project
+            git -C external/Madeira/toolchains/llvm-project checkout --detach llvmorg-15.0.7
+          fi
+          bash external/Madeira/build/dxmt-ios/build.sh || {
+            echo "=== DXMT compiler errors ==="
+            for e in external/Madeira/build/dxmt-ios/obj/*.err; do
+              test -s "$e" && { echo "--- $e"; cat "$e"; }
+            done
+            exit 1
+          }
           test -s external/Madeira/build/dxmt-ios/libdxmt_unix.a
           LLVM_LIST=/tmp/llvm15-ios-static-libs.txt
           find external/Madeira/toolchains/llvm-ios-build/lib -type f -name 'libLLVM*.a' -print | sort > "$LLVM_LIST"
