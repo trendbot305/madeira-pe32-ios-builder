@@ -40,9 +40,15 @@ jobs:
       - name: Verify reused FEX/probe payload
         run: |
           set -euo pipefail
-          test -n "$(find out/fex -type f -name 'libwow64fex.dll' -print -quit)"
-          test -n "$(find out/fex -type f -name 'xtajit.dll' -print -quit)"
-          test -n "$(find out/fex -type f -name 'madeira-pe32-probe.exe' -print -quit)"
+          FEX_DLL="$(find out/fex -type f -name 'libwow64fex.dll' -print -quit)"
+          PROBE_EXE="$(find out/fex -type f -name 'madeira-pe32-probe.exe' -print -quit)"
+          test -n "$FEX_DLL"
+          test -n "$PROBE_EXE"
+          # Run 26's verified artifact intentionally contains libwow64fex.dll
+          # and the PE32 probe. xtajit.dll is created from libwow64fex.dll by
+          # prepare_pe32_probe.py in the device job, exactly as in Run 26.
+          echo "Verified reused FEX: $FEX_DLL"
+          echo "Verified reused probe: $PROBE_EXE"
           echo "Reusing verified Run 26 FEX/probe; no FEX source or probe inputs changed."
 
       - name: Publish FEX/probe for device job
