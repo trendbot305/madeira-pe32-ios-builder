@@ -127,6 +127,17 @@ if "int madeira_guest_shadow_ensure(void);" not in header:
 wine_header.write_text(header, encoding="utf-8")
 
 s = wine_bridge.read_text(encoding="utf-8")
+
+# Keep the shared Wine prefix in process-lifetime storage. LiveContainer can
+# relaunch the embedded app without giving us a conventional fresh process
+# lifetime for every attempt, so a malloc-owned global that is later free()'d
+# is a poor fit for this boundary.
+prefix_global_old = "static char *g_prefix_path = NULL;"
+prefix_global_new = """static char g_prefix_path_storage[PATH_MAX];
+static char *g_prefix_path = NULL;"""
+if prefix_global_old not in s:
+    raise SystemExit("Wine prefix global anchor missing")
+s = s.replace(prefix_global_old, prefix_global_new, 1)
 bridge_helper = r'''
 static void madeira_bridge_checkpoint(const char *stage)
 {
@@ -397,17 +408,26 @@ newbody = "".join(out)
 s = s[:start] + newbody + s[end:]
 print(f"Installed {statement_no} Wine-process statement checkpoints")
 
-# The device reached WINEPROC_STEP_03_BEGIN but the live wineserver log also
-# showed create_process/create_thread activity. Make the launcher-side logging
-# robust (use the owned duplicate, not the caller's temporary pointer) and add
-# descriptive checkpoints on the actual Wine worker thread so the next crash
-# cannot be mis-attributed to the handoff thread.
+# Run 34's last durable marker is WINEPROC_STEP_01_BEGIN. With the pinned
+# WineProcessBridge source, STEP_01 is exactly the old free(g_prefix_path).
+# Remove malloc/free ownership from this process-lifetime shared path entirely.
+free_old = '    if (g_prefix_path) free(g_prefix_path);'
+free_new = '''    g_prefix_path = NULL;
+    madeira_bridge_checkpoint("WINEPROC_PREFIX_OLD_DISCARDED");'''
+if free_old not in s:
+    raise SystemExit("g_prefix_path free anchor missing")
+s = s.replace(free_old, free_new, 1)
+
 dup_old = '    g_prefix_path = strdup(prefix_path);'
-dup_new = '''    g_prefix_path = strdup(prefix_path);
-    if (!g_prefix_path) {
-        madeira_bridge_checkpoint("WINEPROC_PREFIX_DUP_FAIL");
+dup_new = '''    if (!prefix_path ||
+        strlcpy(g_prefix_path_storage, prefix_path, sizeof(g_prefix_path_storage)) >= sizeof(g_prefix_path_storage)) {
+        madeira_bridge_checkpoint("WINEPROC_PREFIX_COPY_FAIL");
+        g_prefix_path_storage[0] = 0;
+        g_prefix_path = NULL;
         return -1;
-    }'''
+    }
+    g_prefix_path = g_prefix_path_storage;
+    madeira_bridge_checkpoint("WINEPROC_PREFIX_COPY_OK");'''
 if dup_old not in s:
     raise SystemExit("g_prefix_path strdup anchor missing")
 s = s.replace(dup_old, dup_new, 1)
