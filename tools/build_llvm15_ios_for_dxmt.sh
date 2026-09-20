@@ -73,9 +73,12 @@ find "$BUILD_ROOT/lib" -maxdepth 1 -type f -name 'libLLVM*.a' -exec cp {} "$OUT_
 
 # CMake-generated LLVM configuration headers are not in the source tree and
 # are required by DXMT AirConv when compiling against LLVM headers.
-cp -R "$BUILD_ROOT/include/llvm/Config/." "$OUT_INCLUDE/llvm/Config/"
+# Preserve the complete generated include tree, not only llvm/Config.
+# LLVM TableGen emits required files such as llvm/IR/Attributes.inc here.
+cp -R "$BUILD_ROOT/include/." "$OUT_INCLUDE/"
 test -s "$OUT_INCLUDE/llvm/Config/llvm-config.h"
 test -s "$OUT_INCLUDE/llvm/Config/abi-breaking.h"
+test -s "$OUT_INCLUDE/llvm/IR/Attributes.inc"
 
 count="$(find "$OUT_LIB" -maxdepth 1 -type f -name 'libLLVM*.a' | wc -l | tr -d ' ')"
 echo "Collected LLVM static archives: $count"
