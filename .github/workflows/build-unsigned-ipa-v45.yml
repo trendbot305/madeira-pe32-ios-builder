@@ -10,6 +10,9 @@ on:
       - ".github/workflows/build-unsigned-ipa-v45.yml"
       - "tools/patch_macho_pagezero.py"
       - "tools/patch_pre_fex_trace.py"
+      - "tools/patch_fex_guest_shadow_stage4.py"
+      - "tools/patch_guest_shadow_runtime.py"
+      - "integration/madeira/pe32_probe.c"
       - "patches/fex-darwin-guest-memory-bias-stage3.patch"
 
 permissions:
