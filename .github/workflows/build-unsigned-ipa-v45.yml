@@ -11,6 +11,10 @@ on:
       - "tools/patch_macho_pagezero.py"
       - "tools/patch_pre_fex_trace.py"
       - "tools/apply_fex_guest_va_patch.sh"
+      - "tools/patch_fex_wow64_guest_va.py"
+      - "tools/patch_madeira_wow64_guest_cage.py"
+      - "tools/patch_wine_wow64_guest_ptrs.py"
+      - "tools/build_wine_i386_windows.ps1"
       - "integration/patches/fex-a04b0241-darwin-guest-memory-bias-stage3.patch"
 
 permissions:
@@ -60,6 +64,9 @@ jobs:
 
       - name: Apply audited FEX guest-VA translation core
         run: bash tools/apply_fex_guest_va_patch.sh external/Madeira/FEX
+
+      - name: Patch FEX WoW64 guest/host boundaries
+        run: python3 tools/patch_fex_wow64_guest_va.py external/Madeira/FEX
 
       - name: Patch pinned FEX diagnostics for standalone WoW64
         run: |
@@ -161,7 +168,6 @@ jobs:
           retention-days: 7
 
   wine-modules:
-    if: false # Reuse verified artifacts from run 9 while debugging the iOS job.
     name: Build minimal Wine WoW64 modules
     runs-on: windows-latest
     steps:
@@ -183,7 +189,7 @@ jobs:
           retention-days: 7
 
   device-ipa:
-    needs: fex-and-probe
+    needs: [fex-and-probe, wine-modules]
     name: Build unsigned iPhone IPA
     runs-on: macos-latest
     steps:
@@ -205,6 +211,7 @@ jobs:
           python3 tools/instrument_madeira_runtime.py external/Madeira
           python3 tools/patch_crash_trace_ui.py external/Madeira
           python3 tools/patch_pre_fex_trace.py external/Madeira
+          python3 tools/patch_madeira_wow64_guest_cage.py external/Madeira
 
       - name: Restore ntdll dependency cache
         id: cache-ntdll-deps
@@ -233,7 +240,7 @@ jobs:
           path: |
             external/Madeira/app/Madeira/libntdll_unix.a
             external/Madeira/build/ntdll-unix/obj
-          key: ntdll-ios-${{ runner.os }}-97e2ce26-${{ hashFiles('tools/build_madeira_ntdll_ios.sh') }}
+          key: ntdll-ios-${{ runner.os }}-97e2ce26-guestva-${{ hashFiles('tools/build_madeira_ntdll_ios.sh', 'tools/patch_madeira_wow64_guest_cage.py') }}
 
       - name: Build native Madeira ntdll archive
         if: steps.cache-ntdll.outputs.cache-hit != 'true'
@@ -290,7 +297,7 @@ jobs:
           path: |
             external/Madeira/app/Madeira/libntdll_unix.a
             external/Madeira/build/ntdll-unix/obj
-          key: ntdll-ios-${{ runner.os }}-97e2ce26-${{ hashFiles('tools/build_madeira_ntdll_ios.sh') }}
+          key: ntdll-ios-${{ runner.os }}-97e2ce26-guestva-${{ hashFiles('tools/build_madeira_ntdll_ios.sh', 'tools/patch_madeira_wow64_guest_cage.py') }}
 
       - name: Restore native FreeType cache
         id: cache-freetype
@@ -365,12 +372,15 @@ jobs:
       - name: Apply audited FEX guest-VA translation core
         run: bash tools/apply_fex_guest_va_patch.sh external/Madeira/FEX
 
+      - name: Patch FEX WoW64 guest/host boundaries
+        run: python3 tools/patch_fex_wow64_guest_va.py external/Madeira/FEX
+
       - name: Restore native FEX cache
         id: cache-fex
         uses: actions/cache/restore@v4
         with:
           path: external/Madeira/FEX/build-ios
-          key: fex-ios-${{ runner.os }}-97e2ce26-guestva-v1-${{ hashFiles('integration/patches/fex-a04b0241-darwin-guest-memory-bias-stage3.patch') }}
+          key: fex-ios-${{ runner.os }}-97e2ce26-guestva-v2-${{ hashFiles('integration/patches/fex-a04b0241-darwin-guest-memory-bias-stage3.patch', 'tools/patch_fex_wow64_guest_va.py') }}
 
       - name: Guard ARM64EC-only diagnostics in native iOS FEX
         if: steps.cache-fex.outputs.cache-hit != 'true'
@@ -444,7 +454,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: external/Madeira/FEX/build-ios
-          key: fex-ios-${{ runner.os }}-97e2ce26-guestva-v1-${{ hashFiles('integration/patches/fex-a04b0241-darwin-guest-memory-bias-stage3.patch') }}
+          key: fex-ios-${{ runner.os }}-97e2ce26-guestva-v2-${{ hashFiles('integration/patches/fex-a04b0241-darwin-guest-memory-bias-stage3.patch', 'tools/patch_fex_wow64_guest_va.py') }}
 
       - name: Restore native wineserver cache
         id: cache-wineserver
@@ -559,7 +569,6 @@ jobs:
         with:
           github-token: ${{ github.token }}
           repository: trendbot305/madeira-pe32-ios-builder
-          run-id: 35462377249
           name: wine-wow64-modules
           path: kit/wine
 
@@ -644,48 +653,27 @@ jobs:
       - name: Build unsigned device app
         run: |
           xcodebuild -version
-          rm -rf build package-standard package-lowva Madeira-PE32-unsigned.ipa Madeira-PE32-lowva-unsigned.ipa
+          rm -rf build package-guestva Madeira-PE32-guestva-unsigned.ipa
           xcodebuild             -project external/Madeira/app/Madeira.xcodeproj             -scheme Madeira             -configuration Release             -sdk iphoneos             -destination 'generic/platform=iOS'             -derivedDataPath "$PWD/build/DerivedData"             CODE_SIGNING_ALLOWED=NO             CODE_SIGNING_REQUIRED=NO             IPHONEOS_DEPLOYMENT_TARGET=18.0             build
 
-      - name: Package baseline and low-VA unsigned IPAs
+      - name: Package guest-VA unsigned IPA
         run: |
           set -euo pipefail
           APP="$(find build/DerivedData/Build/Products/Release-iphoneos -maxdepth 1 -type d -name '*.app' | head -1)"
           test -n "$APP"
-          APP_NAME="$(basename "$APP")"
+          mkdir -p package-guestva/Payload
+          cp -R "$APP" package-guestva/Payload/
+          (cd package-guestva && /usr/bin/zip -qry ../Madeira-PE32-guestva-unsigned.ipa Payload)
+          shasum -a 256 Madeira-PE32-guestva-unsigned.ipa > Madeira-PE32-guestva-unsigned.ipa.sha256
+          /usr/bin/du -h Madeira-PE32-guestva-unsigned.ipa
 
-          mkdir -p package-standard/Payload package-lowva/Payload
-          cp -R "$APP" package-standard/Payload/
-          cp -R "$APP" package-lowva/Payload/
-
-          LOWVA_APP="package-lowva/Payload/$APP_NAME"
-          EXECUTABLE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$LOWVA_APP/Info.plist")"
-          test -n "$EXECUTABLE_NAME"
-          python3 tools/patch_macho_pagezero.py "$LOWVA_APP/$EXECUTABLE_NAME" --size 0x4000
-
-          echo "Low-VA Mach-O layout:"
-          xcrun otool -l "$LOWVA_APP/$EXECUTABLE_NAME" | awk '
-            $1 == "segname" && $2 == "__PAGEZERO" { show=1; print; next }
-            show && ($1 == "vmaddr" || $1 == "vmsize" || $1 == "fileoff" || $1 == "filesize") { print }
-            show && $1 == "maxprot" { exit }
-          '
-
-          (cd package-standard && /usr/bin/zip -qry ../Madeira-PE32-unsigned.ipa Payload)
-          (cd package-lowva && /usr/bin/zip -qry ../Madeira-PE32-lowva-unsigned.ipa Payload)
-          shasum -a 256 Madeira-PE32-unsigned.ipa > Madeira-PE32-unsigned.ipa.sha256
-          shasum -a 256 Madeira-PE32-lowva-unsigned.ipa > Madeira-PE32-lowva-unsigned.ipa.sha256
-          /usr/bin/du -h Madeira-PE32-unsigned.ipa Madeira-PE32-lowva-unsigned.ipa
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$LOWVA_APP/Info.plist"
-
-      - name: Upload baseline and low-VA unsigned IPAs
+      - name: Upload guest-VA unsigned IPA
         uses: actions/upload-artifact@v4
         with:
-          name: Madeira-PE32-lowva-test-IPA
+          name: Madeira-PE32-guestva-test-IPA
           path: |
-            Madeira-PE32-unsigned.ipa
-            Madeira-PE32-unsigned.ipa.sha256
-            Madeira-PE32-lowva-unsigned.ipa
-            Madeira-PE32-lowva-unsigned.ipa.sha256
+            Madeira-PE32-guestva-unsigned.ipa
+            Madeira-PE32-guestva-unsigned.ipa.sha256
             out/madeira-pe32-device-manifest.json
           if-no-files-found: error
           retention-days: 7
