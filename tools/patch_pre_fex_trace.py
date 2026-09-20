@@ -125,6 +125,23 @@ static kern_return_t madeira_probe_fixed_window(vm_address_t requested,
     return result;
 }
 
+static kern_return_t madeira_probe_anywhere(vm_size_t size, const char *name)
+{
+    vm_address_t address = 0;
+    kern_return_t result = vm_allocate(mach_task_self(), &address, size, VM_FLAGS_ANYWHERE);
+    char stage[160];
+    if (result == KERN_SUCCESS) {
+        snprintf(stage, sizeof(stage), "%s_OK_ADDR_0x%llx_SIZE_0x%llx",
+                 name, (unsigned long long)address, (unsigned long long)size);
+        madeira_bridge_checkpoint(stage);
+        (void)vm_deallocate(mach_task_self(), address, size);
+    } else {
+        snprintf(stage, sizeof(stage), "%s_FAIL_KR_%d", name, (int)result);
+        madeira_bridge_checkpoint(stage);
+    }
+    return result;
+}
+
 int madeira_low_va_probe(void)
 {
     const kern_return_t low = madeira_probe_fixed_window(
@@ -140,6 +157,10 @@ int madeira_low_va_probe(void)
         (vm_address_t)0x300000000ULL, (vm_size_t)0x80000000ULL, "BIAS_12G_2G");
     (void)madeira_probe_fixed_window(
         (vm_address_t)0x400000000ULL, (vm_size_t)0x4000, "BIAS_16G_PAGE");
+
+    (void)madeira_probe_anywhere((vm_size_t)0x80000000ULL, "ANYWHERE_2G");
+    (void)madeira_probe_anywhere((vm_size_t)0x40000000ULL, "ANYWHERE_1G");
+    (void)madeira_probe_anywhere((vm_size_t)0x20000000ULL, "ANYWHERE_512M");
 
     return low == KERN_SUCCESS ? 1 : -(int)low;
 }
