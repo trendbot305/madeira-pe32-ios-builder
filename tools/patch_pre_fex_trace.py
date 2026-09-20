@@ -388,9 +388,9 @@ for line in lines:
     )
     if eligible:
         statement_no += 1
-        out.append(f'    madeira_bridge_checkpoint("WINEPROC_STEP_{statement_no:02d}_BEGIN");\\n')
+        out.append(f'    madeira_bridge_checkpoint("WINEPROC_STEP_{statement_no:02d}_BEGIN");\n')
         out.append(line)
-        out.append(f'    madeira_bridge_checkpoint("WINEPROC_STEP_{statement_no:02d}_OK");\\n')
+        out.append(f'    madeira_bridge_checkpoint("WINEPROC_STEP_{statement_no:02d}_OK");\n')
     else:
         out.append(line)
 newbody = "".join(out)
