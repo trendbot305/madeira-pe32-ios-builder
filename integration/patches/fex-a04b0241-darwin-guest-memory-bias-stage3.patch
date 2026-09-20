@@ -1,0 +1,710 @@
+diff --git a/FEXCore/Source/Interface/Context/Context.cpp b/FEXCore/Source/Interface/Context/Context.cpp
+index d4af939..596d5e2 100644
+--- a/FEXCore/Source/Interface/Context/Context.cpp
++++ b/FEXCore/Source/Interface/Context/Context.cpp
+@@ -40,6 +40,157 @@ void FEXCore::Context::ContextImpl::SetThunkHandler(FEXCore::ThunkHandler* Handl
+   ThunkHandler = Handler;
+ }
+ 
++void FEXCore::Context::ContextImpl::SetGuestMemoryAddressBias(
++  uint64_t Bias, uint64_t Limit, uint64_t RedirectGuestPage, uint64_t RedirectHostPage) {
++  Config.GuestMemoryAddressBias = Bias;
++  Config.GuestMemoryAddressLimit = Limit;
++  Config.GuestMemoryRedirectGuestPage = RedirectGuestPage;
++  Config.GuestMemoryRedirectHostPage = RedirectHostPage;
++}
++
++bool FEXCore::Context::ContextImpl::SetGuestMemoryAddressRegions(
++  const GuestMemoryAddressRegion* Regions, size_t Count) {
++  if (Count > GUEST_MEMORY_ADDRESS_REGION_CAPACITY || (Count != 0 && Regions == nullptr)) {
++    return false;
++  }
++
++  std::array<GuestMemoryAddressRegion, GUEST_MEMORY_ADDRESS_REGION_CAPACITY> Validated {};
++  for (size_t Index = 0; Index < Count; ++Index) {
++    const auto& Region = Regions[Index];
++    const bool IsAligned =
++      (Region.GuestBase & 0xFFF) == 0
++      && (Region.HostBase & 0xFFF) == 0
++      && (Region.Size & 0xFFF) == 0;
++    const bool HasValidBounds =
++      Region.HostBase != 0
++      && Region.Size != 0
++      && Region.GuestBase <= UINT64_MAX - Region.Size
++      && Region.HostBase <= UINT64_MAX - Region.Size;
++    if (!IsAligned || !HasValidBounds) {
++      return false;
++    }
++
++    if (Config.GuestMemoryAddressBias != 0
++        && Config.GuestMemoryAddressLimit != 0
++        && Region.GuestBase < Config.GuestMemoryAddressLimit) {
++      return false;
++    }
++
++    const auto RangesOverlap = [](uint64_t BaseA, uint64_t SizeA,
++                                  uint64_t BaseB, uint64_t SizeB) {
++      return BaseA < BaseB + SizeB && BaseB < BaseA + SizeA;
++    };
++    if (Config.GuestMemoryAddressBias != 0
++        && Config.GuestMemoryAddressLimit != 0
++        && Config.GuestMemoryAddressBias
++             <= UINT64_MAX - Config.GuestMemoryAddressLimit
++        && RangesOverlap(
++          Region.HostBase,
++          Region.Size,
++          Config.GuestMemoryAddressBias,
++          Config.GuestMemoryAddressLimit)) {
++      return false;
++    }
++    if (Config.GuestMemoryRedirectHostPage != 0
++        && Config.GuestMemoryRedirectHostPage <= UINT64_MAX - 0x1000
++        && RangesOverlap(
++          Region.HostBase,
++          Region.Size,
++          Config.GuestMemoryRedirectHostPage,
++          0x1000)) {
++      return false;
++    }
++
++    const uint64_t RegionEnd = Region.GuestBase + Region.Size;
++    for (size_t Previous = 0; Previous < Index; ++Previous) {
++      const auto& Other = Validated[Previous];
++      const uint64_t OtherEnd = Other.GuestBase + Other.Size;
++      if ((Region.GuestBase < OtherEnd && Other.GuestBase < RegionEnd)
++          || RangesOverlap(
++            Region.HostBase,
++            Region.Size,
++            Other.HostBase,
++            Other.Size)) {
++        return false;
++      }
++    }
++    Validated[Index] = Region;
++  }
++
++  Config.GuestMemoryAddressRegions = Validated;
++  return true;
++}
++
++bool FEXCore::Context::ContextImpl::TranslateGuestMemoryAddress(
++  uint64_t GuestAddress, uint64_t* HostAddress) const {
++  if (HostAddress == nullptr) {
++    return false;
++  }
++
++  if (Config.GuestMemoryAddressBias != 0
++      && Config.GuestMemoryAddressLimit != 0
++      && GuestAddress < Config.GuestMemoryAddressLimit) {
++    if (Config.GuestMemoryRedirectGuestPage != 0
++        && Config.GuestMemoryRedirectHostPage != 0
++        && GuestAddress >= Config.GuestMemoryRedirectGuestPage
++        && GuestAddress - Config.GuestMemoryRedirectGuestPage < 0x1000) {
++      *HostAddress = Config.GuestMemoryRedirectHostPage
++        + (GuestAddress - Config.GuestMemoryRedirectGuestPage);
++      return true;
++    }
++    if (GuestAddress <= UINT64_MAX - Config.GuestMemoryAddressBias) {
++      *HostAddress = Config.GuestMemoryAddressBias + GuestAddress;
++      return true;
++    }
++    return false;
++  }
++
++  for (const auto& Region : Config.GuestMemoryAddressRegions) {
++    if (Region.Size != 0
++        && GuestAddress >= Region.GuestBase
++        && GuestAddress - Region.GuestBase < Region.Size) {
++      *HostAddress = Region.HostBase + (GuestAddress - Region.GuestBase);
++      return true;
++    }
++  }
++  return false;
++}
++
++bool FEXCore::Context::ContextImpl::TranslateHostMemoryAddress(
++  uint64_t HostAddress, uint64_t* GuestAddress) const {
++  if (GuestAddress == nullptr) {
++    return false;
++  }
++
++  if (Config.GuestMemoryRedirectGuestPage != 0
++      && Config.GuestMemoryRedirectHostPage != 0
++      && HostAddress >= Config.GuestMemoryRedirectHostPage
++      && HostAddress - Config.GuestMemoryRedirectHostPage < 0x1000) {
++    *GuestAddress = Config.GuestMemoryRedirectGuestPage
++      + (HostAddress - Config.GuestMemoryRedirectHostPage);
++    return true;
++  }
++
++  for (const auto& Region : Config.GuestMemoryAddressRegions) {
++    if (Region.Size != 0
++        && HostAddress >= Region.HostBase
++        && HostAddress - Region.HostBase < Region.Size) {
++      *GuestAddress = Region.GuestBase + (HostAddress - Region.HostBase);
++      return true;
++    }
++  }
++
++  if (Config.GuestMemoryAddressBias != 0
++      && Config.GuestMemoryAddressLimit != 0
++      && HostAddress >= Config.GuestMemoryAddressBias
++      && HostAddress - Config.GuestMemoryAddressBias
++        < Config.GuestMemoryAddressLimit) {
++    *GuestAddress = HostAddress - Config.GuestMemoryAddressBias;
++    return true;
++  }
++  return false;
++}
++
+ FEXCore::CPUID::FunctionResults FEXCore::Context::ContextImpl::RunCPUIDFunction(uint32_t Function, uint32_t Leaf) {
+   return CPUID.RunFunction(Function, Leaf);
+ }
+diff --git a/FEXCore/Source/Interface/Context/Context.h b/FEXCore/Source/Interface/Context/Context.h
+index e195f6b..bfd638b 100644
+--- a/FEXCore/Source/Interface/Context/Context.h
++++ b/FEXCore/Source/Interface/Context/Context.h
+@@ -19,6 +19,7 @@
+ #include <FEXCore/fextl/vector.h>
+ 
+ #include <atomic>
++#include <array>
+ #include <cstddef>
+ #include <cstdint>
+ #include <mutex>
+@@ -186,6 +187,14 @@ public:
+   void SetSignalDelegator(FEXCore::SignalDelegator* SignalDelegation) override;
+   void SetSyscallHandler(FEXCore::HLE::SyscallHandler* Handler) override;
+   void SetThunkHandler(FEXCore::ThunkHandler* Handler) override;
++  void SetGuestMemoryAddressBias(
++    uint64_t Bias, uint64_t Limit, uint64_t RedirectGuestPage, uint64_t RedirectHostPage) override;
++  bool SetGuestMemoryAddressRegions(
++    const GuestMemoryAddressRegion* Regions, size_t Count) override;
++  bool TranslateGuestMemoryAddress(
++    uint64_t GuestAddress, uint64_t* HostAddress) const override;
++  bool TranslateHostMemoryAddress(
++    uint64_t HostAddress, uint64_t* GuestAddress) const override;
+ 
+   FEXCore::CPUID::FunctionResults RunCPUIDFunction(uint32_t Function, uint32_t Leaf) override;
+   FEXCore::CPUID::XCRResults RunXCRFunction(uint32_t Function) override;
+@@ -237,6 +246,12 @@ public:
+   struct {
+     uint64_t VirtualMemSize {1ULL << 36};
+     uint64_t TSCScale = 0;
++    uint64_t GuestMemoryAddressBias {};
++    uint64_t GuestMemoryAddressLimit {};
++    uint64_t GuestMemoryRedirectGuestPage {};
++    uint64_t GuestMemoryRedirectHostPage {};
++    std::array<GuestMemoryAddressRegion, GUEST_MEMORY_ADDRESS_REGION_CAPACITY>
++      GuestMemoryAddressRegions {};
+ 
+     // Used if the JIT needs to have its interrupt fault code emitted.
+     bool NeedsPendingInterruptFaultCheck {false};
+diff --git a/FEXCore/Source/Interface/Core/JIT/JITClass.h b/FEXCore/Source/Interface/Core/JIT/JITClass.h
+index 3e01eeb..12fa815 100644
+--- a/FEXCore/Source/Interface/Core/JIT/JITClass.h
++++ b/FEXCore/Source/Interface/Core/JIT/JITClass.h
+@@ -323,6 +323,12 @@ private:
+   ARMEmitter::Register ApplyMemOperand(IR::OpSize AccessSize, ARMEmitter::Register Base, ARMEmitter::Register Tmp,
+                                        IR::OrderedNodeWrapper Offset, IR::MemOffsetType OffsetType, uint8_t OffsetScale);
+ 
++  [[nodiscard]]
++  ARMEmitter::Register ApplyGuestMemoryAddressBias(ARMEmitter::Register Address);
++
++  [[nodiscard]]
++  bool IsGuestMemoryAddressTranslationEnabled() const;
++
+   // NOTE: Will use TMP1 as a way to encode immediates that happen to fall outside
+   //       the limits of the scalar plus immediate variant of SVE load/stores.
+   //
+diff --git a/FEXCore/Source/Interface/Core/JIT/MemoryOps.cpp b/FEXCore/Source/Interface/Core/JIT/MemoryOps.cpp
+index 1c9b4c2..a4c63b8 100644
+--- a/FEXCore/Source/Interface/Core/JIT/MemoryOps.cpp
++++ b/FEXCore/Source/Interface/Core/JIT/MemoryOps.cpp
+@@ -15,6 +15,8 @@ $end_info$
+ #include <FEXCore/Utils/CompilerDefs.h>
+ #include <FEXCore/Utils/MathUtils.h>
+ 
++#include <algorithm>
++
+ namespace FEXCore::CPU {
+ 
+ DEF_OP(LoadContext) {
+@@ -586,6 +588,12 @@ DEF_OP(ContextClear) {
+ 
+ ARMEmitter::ExtendedMemOperand Arm64JITCore::GenerateMemOperand(
+   IR::OpSize AccessSize, ARMEmitter::Register Base, IR::OrderedNodeWrapper Offset, IR::MemOffsetType OffsetType, uint8_t OffsetScale) {
++  if (IsGuestMemoryAddressTranslationEnabled()) {
++    const auto Address = ApplyMemOperand(AccessSize, Base, TMP1, Offset, OffsetType, OffsetScale);
++    const auto HostAddress = ApplyGuestMemoryAddressBias(Address);
++    return ARMEmitter::ExtendedMemOperand(HostAddress.X(), ARMEmitter::IndexType::OFFSET, 0);
++  }
++
+   if (Offset.IsInvalid()) {
+     return ARMEmitter::ExtendedMemOperand(Base.X(), ARMEmitter::IndexType::OFFSET, 0);
+   } else {
+@@ -650,6 +658,92 @@ ARMEmitter::Register Arm64JITCore::ApplyMemOperand(IR::OpSize AccessSize, ARMEmi
+   return Tmp;
+ }
+ 
++ARMEmitter::Register Arm64JITCore::ApplyGuestMemoryAddressBias(ARMEmitter::Register Address) {
++  if (!IsGuestMemoryAddressTranslationEnabled()) {
++    return Address;
++  }
++
++  if (CTX->Config.GuestMemoryAddressBias != 0) {
++    LOGMAN_THROW_A_FMT(CTX->Config.GuestMemoryAddressLimit == (1ULL << 32),
++                       "Guest memory address bias currently requires a 4GiB limit");
++  }
++
++  if (Address != TMP2) {
++    mov(ARMEmitter::Size::i64Bit, TMP2, Address);
++  }
++
++  ARMEmitter::ForwardLabel SparseAddress {};
++  ARMEmitter::ForwardLabel LinearLowAddress {};
++  ARMEmitter::ForwardLabel Done {};
++  if (CTX->Config.GuestMemoryAddressBias != 0) {
++    lsr(ARMEmitter::Size::i64Bit, TMP3, TMP2, 32);
++    (void)cbnz(ARMEmitter::Size::i64Bit, TMP3, &SparseAddress);
++    if (CTX->Config.GuestMemoryRedirectHostPage != 0) {
++      LOGMAN_THROW_A_FMT(
++        (CTX->Config.GuestMemoryRedirectGuestPage & 0xFFF) == 0
++          && (CTX->Config.GuestMemoryRedirectHostPage & 0xFFF) == 0,
++        "Guest memory redirect pages must be aligned to 4KiB");
++      ubfx(ARMEmitter::Size::i64Bit, TMP3, TMP2, 12, 20);
++      LoadConstant(
++        ARMEmitter::Size::i64Bit,
++        TMP4,
++        CTX->Config.GuestMemoryRedirectGuestPage >> 12);
++      cmp(ARMEmitter::Size::i64Bit, TMP3, TMP4);
++      (void)b(ARMEmitter::Condition::CC_NE, &LinearLowAddress);
++      and_(ARMEmitter::Size::i64Bit, TMP3, TMP2, 0xFFF);
++      LoadConstant(
++        ARMEmitter::Size::i64Bit,
++        TMP4,
++        CTX->Config.GuestMemoryRedirectHostPage);
++      add(ARMEmitter::Size::i64Bit, TMP2, TMP3, TMP4);
++      (void)b(&Done);
++      (void)Bind(&LinearLowAddress);
++    }
++    LoadConstant(ARMEmitter::Size::i64Bit, TMP4, CTX->Config.GuestMemoryAddressBias);
++    add(ARMEmitter::Size::i64Bit, TMP2, TMP2, TMP4);
++    (void)b(&Done);
++  }
++
++  (void)Bind(&SparseAddress);
++  for (size_t Index = 0; Index < Context::GUEST_MEMORY_ADDRESS_REGION_CAPACITY; ++Index) {
++    ARMEmitter::ForwardLabel NextRegion {};
++    const auto* Region = &CTX->Config.GuestMemoryAddressRegions[Index];
++    LoadConstant(
++      ARMEmitter::Size::i64Bit,
++      TMP4,
++      reinterpret_cast<uint64_t>(&Region->GuestBase));
++    ldr(TMP3, TMP4, 0);
++    sub(ARMEmitter::Size::i64Bit, TMP3, TMP2, TMP3);
++    LoadConstant(
++      ARMEmitter::Size::i64Bit,
++      TMP4,
++      reinterpret_cast<uint64_t>(&Region->Size));
++    ldr(TMP4, TMP4, 0);
++    cmp(ARMEmitter::Size::i64Bit, TMP3, TMP4);
++    (void)b(ARMEmitter::Condition::CC_HS, &NextRegion);
++    LoadConstant(
++      ARMEmitter::Size::i64Bit,
++      TMP4,
++      reinterpret_cast<uint64_t>(&Region->HostBase));
++    ldr(TMP4, TMP4, 0);
++    add(ARMEmitter::Size::i64Bit, TMP2, TMP3, TMP4);
++    (void)b(&Done);
++    (void)Bind(&NextRegion);
++  }
++  (void)Bind(&Done);
++  return TMP2;
++}
++
++bool Arm64JITCore::IsGuestMemoryAddressTranslationEnabled() const {
++  if (CTX->Config.GuestMemoryAddressBias != 0) {
++    return true;
++  }
++  return std::any_of(
++    CTX->Config.GuestMemoryAddressRegions.begin(),
++    CTX->Config.GuestMemoryAddressRegions.end(),
++    [](const auto& Region) { return Region.Size != 0; });
++}
++
+ ARMEmitter::SVEMemOperand Arm64JITCore::GenerateSVEMemOperand(IR::OpSize AccessSize, ARMEmitter::Register Base, IR::OrderedNodeWrapper Offset,
+                                                               IR::MemOffsetType OffsetType, [[maybe_unused]] uint8_t OffsetScale) {
+   if (Offset.IsInvalid()) {
+@@ -769,6 +863,10 @@ DEF_OP(LoadMemTSO) {
+   const auto OpSize = IROp->Size;
+ 
+   const auto MemReg = GetReg(Op->Addr);
++  const bool GuestMemoryBiasEnabled = IsGuestMemoryAddressTranslationEnabled();
++  const auto TSOMemReg = GuestMemoryBiasEnabled
++    ? ApplyGuestMemoryAddressBias(ApplyMemOperand(OpSize, MemReg, TMP1, Op->Offset, Op->OffsetType, Op->OffsetScale))
++    : MemReg;
+ 
+   if (Op->Class == IR::RegClass::GPR) {
+     LOGMAN_THROW_A_FMT(Op->Offset.IsInvalid() || CTX->HostFeatures.SupportsTSOImm9, "unexpected offset");
+@@ -779,7 +877,7 @@ DEF_OP(LoadMemTSO) {
+   if (CTX->HostFeatures.SupportsTSOImm9 && Op->Class == IR::RegClass::GPR) {
+     const auto Dst = GetReg(Node);
+     uint64_t Offset = 0;
+-    if (!Op->Offset.IsInvalid()) {
++    if (!GuestMemoryBiasEnabled && !Op->Offset.IsInvalid()) {
+       bool IsInline = IsInlineConstant(Op->Offset, &Offset);
+       LOGMAN_THROW_A_FMT(IsInline, "expected immediate");
+     }
+@@ -787,12 +885,12 @@ DEF_OP(LoadMemTSO) {
+     if (OpSize == IR::OpSize::i8Bit) {
+       // 8bit load is always aligned to natural alignment
+       const auto Dst = GetReg(Node);
+-      ldapurb(Dst, MemReg, Offset);
++      ldapurb(Dst, TSOMemReg, Offset);
+     } else {
+       switch (OpSize) {
+-      case IR::OpSize::i16Bit: ldapurh(Dst, MemReg, Offset); break;
+-      case IR::OpSize::i32Bit: ldapur(Dst.W(), MemReg, Offset); break;
+-      case IR::OpSize::i64Bit: ldapur(Dst.X(), MemReg, Offset); break;
++      case IR::OpSize::i16Bit: ldapurh(Dst, TSOMemReg, Offset); break;
++      case IR::OpSize::i32Bit: ldapur(Dst.W(), TSOMemReg, Offset); break;
++      case IR::OpSize::i64Bit: ldapur(Dst.X(), TSOMemReg, Offset); break;
+       default: LOGMAN_MSG_A_FMT("Unhandled LoadMemTSO size: {}", OpSize); break;
+       }
+       // Half-barrier once back-patched.
+@@ -802,12 +900,12 @@ DEF_OP(LoadMemTSO) {
+     const auto Dst = GetReg(Node);
+     if (OpSize == IR::OpSize::i8Bit) {
+       // 8bit load is always aligned to natural alignment
+-      ldaprb(Dst.W(), MemReg);
++      ldaprb(Dst.W(), TSOMemReg);
+     } else {
+       switch (OpSize) {
+-      case IR::OpSize::i16Bit: ldaprh(Dst.W(), MemReg); break;
+-      case IR::OpSize::i32Bit: ldapr(Dst.W(), MemReg); break;
+-      case IR::OpSize::i64Bit: ldapr(Dst.X(), MemReg); break;
++      case IR::OpSize::i16Bit: ldaprh(Dst.W(), TSOMemReg); break;
++      case IR::OpSize::i32Bit: ldapr(Dst.W(), TSOMemReg); break;
++      case IR::OpSize::i64Bit: ldapr(Dst.X(), TSOMemReg); break;
+       default: LOGMAN_MSG_A_FMT("Unhandled LoadMemTSO size: {}", OpSize); break;
+       }
+       // Half-barrier once back-patched.
+@@ -817,12 +915,12 @@ DEF_OP(LoadMemTSO) {
+     const auto Dst = GetReg(Node);
+     if (OpSize == IR::OpSize::i8Bit) {
+       // 8bit load is always aligned to natural alignment
+-      ldarb(Dst, MemReg);
++      ldarb(Dst, TSOMemReg);
+     } else {
+       switch (OpSize) {
+-      case IR::OpSize::i16Bit: ldarh(Dst, MemReg); break;
+-      case IR::OpSize::i32Bit: ldar(Dst.W(), MemReg); break;
+-      case IR::OpSize::i64Bit: ldar(Dst.X(), MemReg); break;
++      case IR::OpSize::i16Bit: ldarh(Dst, TSOMemReg); break;
++      case IR::OpSize::i32Bit: ldar(Dst.W(), TSOMemReg); break;
++      case IR::OpSize::i64Bit: ldar(Dst.X(), TSOMemReg); break;
+       default: LOGMAN_MSG_A_FMT("Unhandled LoadMemTSO size: {}", OpSize); break;
+       }
+       // Half-barrier once back-patched.
+@@ -1356,6 +1454,9 @@ DEF_OP(VLoadVectorElement) {
+   const auto Dst = GetVReg(Node);
+   const auto DstSrc = GetVReg(Op->DstSrc);
+   const auto MemReg = GetReg(Op->Addr);
++  const auto ElementMemReg = IsGuestMemoryAddressTranslationEnabled()
++    ? ApplyGuestMemoryAddressBias(MemReg)
++    : MemReg;
+ 
+   LOGMAN_THROW_A_FMT(ElementSize == IR::OpSize::i8Bit || ElementSize == IR::OpSize::i16Bit || ElementSize == IR::OpSize::i32Bit ||
+                        ElementSize == IR::OpSize::i64Bit || ElementSize == IR::OpSize::i128Bit,
+@@ -1369,11 +1470,11 @@ DEF_OP(VLoadVectorElement) {
+       mov(Dst.Q(), DstSrc.Q());
+     }
+     switch (ElementSize) {
+-    case IR::OpSize::i8Bit: ld1<ARMEmitter::SubRegSize::i8Bit>(Dst.Q(), Op->Index, MemReg); break;
+-    case IR::OpSize::i16Bit: ld1<ARMEmitter::SubRegSize::i16Bit>(Dst.Q(), Op->Index, MemReg); break;
+-    case IR::OpSize::i32Bit: ld1<ARMEmitter::SubRegSize::i32Bit>(Dst.Q(), Op->Index, MemReg); break;
+-    case IR::OpSize::i64Bit: ld1<ARMEmitter::SubRegSize::i64Bit>(Dst.Q(), Op->Index, MemReg); break;
+-    case IR::OpSize::i128Bit: ldr(Dst.Q(), MemReg); break;
++    case IR::OpSize::i8Bit: ld1<ARMEmitter::SubRegSize::i8Bit>(Dst.Q(), Op->Index, ElementMemReg); break;
++    case IR::OpSize::i16Bit: ld1<ARMEmitter::SubRegSize::i16Bit>(Dst.Q(), Op->Index, ElementMemReg); break;
++    case IR::OpSize::i32Bit: ld1<ARMEmitter::SubRegSize::i32Bit>(Dst.Q(), Op->Index, ElementMemReg); break;
++    case IR::OpSize::i64Bit: ld1<ARMEmitter::SubRegSize::i64Bit>(Dst.Q(), Op->Index, ElementMemReg); break;
++    case IR::OpSize::i128Bit: ldr(Dst.Q(), ElementMemReg); break;
+     default: LOGMAN_MSG_A_FMT("Unhandled {} size: {}", __func__, ElementSize); return;
+     }
+   }
+@@ -1499,6 +1600,48 @@ DEF_OP(Push) {
+     Src = TMP1;
+   }
+ 
++  if (IsGuestMemoryAddressTranslationEnabled()) {
++    // Dst is the architectural stack pointer and must remain a guest logical
++    // address. Use a separate, biased address only for the host store.
++    if (NeedsMoveAfterwards) {
++      mov(TMP1, Src.X());
++      Src = TMP1;
++    }
++
++    sub(
++      IROp->Size == IR::OpSize::i64Bit
++        ? ARMEmitter::Size::i64Bit
++        : ARMEmitter::Size::i32Bit,
++      Dst,
++      AddrSrc,
++      ValueSize);
++    const auto HostAddress = ApplyGuestMemoryAddressBias(Dst);
++
++    switch (ValueSize) {
++    case 1: {
++      strb(Src.W(), HostAddress);
++      break;
++    }
++    case 2: {
++      strh(Src.W(), HostAddress);
++      break;
++    }
++    case 4: {
++      str(Src.W(), HostAddress);
++      break;
++    }
++    case 8: {
++      str(Src.X(), HostAddress);
++      break;
++    }
++    default: {
++      LOGMAN_MSG_A_FMT("Unhandled {} size: {}", __func__, ValueSize);
++      break;
++    }
++    }
++    return;
++  }
++
+   if (NeedsMoveAfterwards) {
+     switch (ValueSize) {
+     case 1: {
+@@ -1557,6 +1700,47 @@ DEF_OP(PushTwo) {
+   auto Src2 = GetReg(Op->Value2);
+   const auto Dst = GetReg(Op->Addr);
+ 
++  if (IsGuestMemoryAddressTranslationEnabled()) {
++    // PushTwo has no SSA destination, and its generated IR drops the #Size
++    // constructor argument. Use the guest operating mode for the stack-address
++    // width. Preserve an aliased source before updating the logical stack
++    // pointer and bias only the host store address.
++    if (Src1 == Dst || Src2 == Dst) {
++      mov(TMP1, Dst.X());
++      if (Src1 == Dst) {
++        Src1 = TMP1;
++      }
++      if (Src2 == Dst) {
++        Src2 = TMP1;
++      }
++    }
++
++    sub(
++      CTX->Config.Is64BitMode
++        ? ARMEmitter::Size::i64Bit
++        : ARMEmitter::Size::i32Bit,
++      Dst,
++      Dst,
++      2 * ValueSize);
++    const auto HostAddress = ApplyGuestMemoryAddressBias(Dst);
++
++    switch (ValueSize) {
++    case 4: {
++      stp<ARMEmitter::IndexType::OFFSET>(Src1.W(), Src2.W(), HostAddress, 0);
++      break;
++    }
++    case 8: {
++      stp<ARMEmitter::IndexType::OFFSET>(Src1.X(), Src2.X(), HostAddress, 0);
++      break;
++    }
++    default: {
++      LOGMAN_MSG_A_FMT("Unhandled {} size: {}", __func__, ValueSize);
++      break;
++    }
++    }
++    return;
++  }
++
+   switch (ValueSize) {
+   case 4: {
+     stp<ARMEmitter::IndexType::PRE>(Src1.W(), Src2.W(), Dst, -2 * ValueSize);
+@@ -1581,6 +1765,41 @@ DEF_OP(Pop) {
+ 
+   LOGMAN_THROW_A_FMT(Dst != Addr, "Invalid");
+ 
++  if (IsGuestMemoryAddressTranslationEnabled()) {
++    const auto HostAddress = ApplyGuestMemoryAddressBias(Addr);
++    switch (Size) {
++    case 1: {
++      ldrb(Dst.W(), HostAddress, 0);
++      break;
++    }
++    case 2: {
++      ldrh(Dst.W(), HostAddress, 0);
++      break;
++    }
++    case 4: {
++      ldr(Dst.W(), HostAddress, 0);
++      break;
++    }
++    case 8: {
++      ldr(Dst.X(), HostAddress, 0);
++      break;
++    }
++    default: {
++      LOGMAN_MSG_A_FMT("Unhandled {} size: {}", __func__, Op->Size);
++      break;
++    }
++    }
++
++    add(
++      CTX->Config.Is64BitMode
++        ? ARMEmitter::Size::i64Bit
++        : ARMEmitter::Size::i32Bit,
++      Addr,
++      Addr,
++      Size);
++    return;
++  }
++
+   switch (Size) {
+   case 1: {
+     ldrb<ARMEmitter::IndexType::POST>(Dst.W(), Addr, Size);
+@@ -1780,6 +1999,10 @@ DEF_OP(StoreMemTSO) {
+   const auto OpSize = IROp->Size;
+ 
+   const auto MemReg = GetReg(Op->Addr);
++  const bool GuestMemoryBiasEnabled = IsGuestMemoryAddressTranslationEnabled();
++  const auto TSOMemReg = GuestMemoryBiasEnabled
++    ? ApplyGuestMemoryAddressBias(ApplyMemOperand(OpSize, MemReg, TMP1, Op->Offset, Op->OffsetType, Op->OffsetScale))
++    : MemReg;
+ 
+   if (Op->Class == IR::RegClass::GPR) {
+     LOGMAN_THROW_A_FMT(Op->Offset.IsInvalid() || CTX->HostFeatures.SupportsTSOImm9, "unexpected offset");
+@@ -1790,21 +2013,21 @@ DEF_OP(StoreMemTSO) {
+   if (CTX->HostFeatures.SupportsTSOImm9 && Op->Class == IR::RegClass::GPR) {
+     const auto Src = GetZeroableReg(Op->Value);
+     uint64_t Offset = 0;
+-    if (!Op->Offset.IsInvalid()) {
++    if (!GuestMemoryBiasEnabled && !Op->Offset.IsInvalid()) {
+       bool IsInline = IsInlineConstant(Op->Offset, &Offset);
+       LOGMAN_THROW_A_FMT(IsInline, "expected immediate");
+     }
+ 
+     if (OpSize == IR::OpSize::i8Bit) {
+       // 8bit load is always aligned to natural alignment
+-      stlurb(Src, MemReg, Offset);
++      stlurb(Src, TSOMemReg, Offset);
+     } else {
+       // Half-barrier once back-patched.
+       nop();
+       switch (OpSize) {
+-      case IR::OpSize::i16Bit: stlurh(Src, MemReg, Offset); break;
+-      case IR::OpSize::i32Bit: stlur(Src.W(), MemReg, Offset); break;
+-      case IR::OpSize::i64Bit: stlur(Src.X(), MemReg, Offset); break;
++      case IR::OpSize::i16Bit: stlurh(Src, TSOMemReg, Offset); break;
++      case IR::OpSize::i32Bit: stlur(Src.W(), TSOMemReg, Offset); break;
++      case IR::OpSize::i64Bit: stlur(Src.X(), TSOMemReg, Offset); break;
+       default: LOGMAN_MSG_A_FMT("Unhandled StoreMemTSO size: {}", OpSize); break;
+       }
+     }
+@@ -1813,14 +2036,14 @@ DEF_OP(StoreMemTSO) {
+ 
+     if (OpSize == IR::OpSize::i8Bit) {
+       // 8bit load is always aligned to natural alignment
+-      stlrb(Src, MemReg);
++      stlrb(Src, TSOMemReg);
+     } else {
+       // Half-barrier once back-patched.
+       nop();
+       switch (OpSize) {
+-      case IR::OpSize::i16Bit: stlrh(Src, MemReg); break;
+-      case IR::OpSize::i32Bit: stlr(Src.W(), MemReg); break;
+-      case IR::OpSize::i64Bit: stlr(Src.X(), MemReg); break;
++      case IR::OpSize::i16Bit: stlrh(Src, TSOMemReg); break;
++      case IR::OpSize::i32Bit: stlr(Src.W(), TSOMemReg); break;
++      case IR::OpSize::i64Bit: stlr(Src.X(), TSOMemReg); break;
+       default: LOGMAN_MSG_A_FMT("Unhandled StoreMemTSO size: {}", OpSize); break;
+       }
+     }
+diff --git a/FEXCore/include/FEXCore/Core/Context.h b/FEXCore/include/FEXCore/Core/Context.h
+index ec61b90..ad5c8fb 100644
+--- a/FEXCore/include/FEXCore/Core/Context.h
++++ b/FEXCore/include/FEXCore/Core/Context.h
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: MIT
+ #pragma once
++#include <cstddef>
+ #include <functional>
+ #include <stdint.h>
+ 
+@@ -46,6 +47,14 @@ using CustomIREntrypointHandler = std::function<void(uintptr_t Entrypoint, IR::I
+ 
+ using ExitHandler = std::function<void(Core::InternalThreadState* Thread)>;
+ 
++constexpr size_t GUEST_MEMORY_ADDRESS_REGION_CAPACITY = 4;
++
++struct GuestMemoryAddressRegion {
++  uint64_t GuestBase {};
++  uint64_t HostBase {};
++  uint64_t Size {};
++};
++
+ class Context {
+ public:
+   virtual ~Context() = default;
+@@ -132,6 +141,51 @@ public:
+   FEX_DEFAULT_VISIBILITY virtual void SetSyscallHandler(FEXCore::HLE::SyscallHandler* Handler) = 0;
+   FEX_DEFAULT_VISIBILITY virtual void SetThunkHandler(FEXCore::ThunkHandler* Handler) = 0;
+ 
++  /**
++   * @brief Translates guest data addresses below Limit to host memory.
++   *
++   * This is disabled when Bias or Limit is zero. It exists for hosts that
++   * cannot map the guest's low virtual address range directly. Callers must
++   * configure it before InitCore and keep the backing ranges alive. A single
++   * guest page may optionally be redirected to an isolated host page when
++   * the host page size is larger than the guest page size.
++   */
++  FEX_DEFAULT_VISIBILITY virtual void SetGuestMemoryAddressBias(
++    uint64_t Bias, uint64_t Limit, uint64_t RedirectGuestPage = 0, uint64_t RedirectHostPage = 0) = 0;
++
++  /**
++   * @brief Configures a bounded set of sparse guest data regions.
++   *
++   * Regions translate GuestBase + offset to HostBase + offset without
++   * requiring the host to map the guest-selected virtual address. Configure
++   * them before InitCore and keep every host range alive for the context
++   * lifetime. Regions must be page-aligned, non-empty and non-overlapping in
++   * guest address space.
++   */
++  FEX_DEFAULT_VISIBILITY virtual bool
++  SetGuestMemoryAddressRegions(const GuestMemoryAddressRegion* Regions, size_t Count) = 0;
++
++  /**
++   * @brief Resolves a configured guest data address to its host backing.
++   *
++   * Returns false when the address is not covered by the low shadow, its
++   * redirected page or a sparse region. The output is left unchanged on
++   * failure. This host-side query does not make the returned memory valid;
++   * callers remain responsible for its mapping and protection lifetime.
++   */
++  FEX_DEFAULT_VISIBILITY virtual bool
++  TranslateGuestMemoryAddress(uint64_t GuestAddress, uint64_t* HostAddress) const = 0;
++
++  /**
++   * @brief Resolves a configured host backing address to its guest address.
++   *
++   * This is the inverse used to report a host fault at the logical address
++   * expected by the guest. The output is left unchanged when no configured
++   * region contains HostAddress.
++   */
++  FEX_DEFAULT_VISIBILITY virtual bool
++  TranslateHostMemoryAddress(uint64_t HostAddress, uint64_t* GuestAddress) const = 0;
++
+   FEX_DEFAULT_VISIBILITY virtual FEXCore::CPUID::FunctionResults RunCPUIDFunction(uint32_t Function, uint32_t Leaf) = 0;
+   FEX_DEFAULT_VISIBILITY virtual FEXCore::CPUID::XCRResults RunXCRFunction(uint32_t Function) = 0;
+   FEX_DEFAULT_VISIBILITY virtual FEXCore::CPUID::FunctionResults RunCPUIDFunctionName(uint32_t Function, uint32_t Leaf, uint32_t CPU) = 0;
