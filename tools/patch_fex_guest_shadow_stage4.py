@@ -207,4 +207,36 @@ if "GuestFaultAddress = TranslateHostFaultToGuest" not in s:
 
 p.write_text(s, encoding="utf-8")
 
-print("Installed FEX guest-shadow stage4/5: fetch + SMC + atomic-add + WoW64 env/fault wiring")
+# 5) The upstream Madeira FEX fork carries Windows/rpmalloc-only allocator
+# telemetry in Core.cpp. Native iOS deliberately disables rpmalloc, so leaving
+# the snapshot consumer enabled creates an unresolved rpm_cas_snapshot_take
+# reference at the final app link. Preserve the diagnostics for Windows WoW64,
+# but compile them out of the native iOS FEX static library.
+p = root / "FEXCore/Source/Interface/Core/Core.cpp"
+s = p.read_text(encoding="utf-8")
+rpm_start = """      {
+        rpm_cas_snapshot Snap;
+        if (rpm_cas_snapshot_take(&Snap)) {"""
+rpm_end = """      }
+    }
+  }
+
+  /* iOS-Madeira 2026-05-14: per-thread callret tracking"""
+if "#if defined(_WIN32) // rpmalloc CAS telemetry" not in s:
+    if rpm_start not in s:
+        raise SystemExit("rpmalloc CAS telemetry start anchor missing")
+    if rpm_end not in s:
+        raise SystemExit("rpmalloc CAS telemetry end anchor missing")
+    s = s.replace(
+        rpm_start,
+        "#if defined(_WIN32) // rpmalloc CAS telemetry\\n" + rpm_start,
+        1,
+    )
+    s = s.replace(
+        rpm_end,
+        "      }\\n#endif // _WIN32 - rpmalloc CAS telemetry\\n    }\\n  }\\n\\n  /* iOS-Madeira 2026-05-14: per-thread callret tracking",
+        1,
+    )
+p.write_text(s, encoding="utf-8")
+
+print("Installed FEX guest-shadow stage4/5 and native-iOS rpmalloc telemetry guard")
