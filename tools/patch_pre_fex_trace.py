@@ -158,6 +158,8 @@ int madeira_low_va_probe(void)
     (void)madeira_probe_fixed_window(
         (vm_address_t)0x400000000ULL, (vm_size_t)0x4000, "BIAS_16G_PAGE");
 
+    (void)madeira_probe_anywhere((vm_size_t)0x100000000ULL, "ANYWHERE_4G");
+    (void)madeira_probe_anywhere((vm_size_t)0xC0000000ULL, "ANYWHERE_3G");
     (void)madeira_probe_anywhere((vm_size_t)0x80000000ULL, "ANYWHERE_2G");
     (void)madeira_probe_anywhere((vm_size_t)0x40000000ULL, "ANYWHERE_1G");
     (void)madeira_probe_anywhere((vm_size_t)0x20000000ULL, "ANYWHERE_512M");
