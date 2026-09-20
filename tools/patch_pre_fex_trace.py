@@ -68,8 +68,6 @@ if old not in s:
     raise SystemExit("MadeiraApp init marker missing")
 app_file.write_text(s.replace(old, new, 1), encoding="utf-8")
 
-
-
 header = wine_header.read_text(encoding="utf-8")
 declaration = "int madeira_low_va_probe(void);"
 if declaration not in header:
@@ -105,6 +103,32 @@ static void madeira_bridge_checkpoint(const char *stage)
 
 '''
 probe_function = r'''
+static vm_address_t g_madeira_guest_shadow_base = 0;
+static vm_size_t g_madeira_guest_shadow_size = 0;
+
+static void madeira_publish_hex_env(const char *name, unsigned long long value)
+{
+    char buffer[32];
+    snprintf(buffer, sizeof(buffer), "%llx", value);
+    setenv(name, buffer, 1);
+}
+
+static void madeira_publish_guest_shadow_arena(vm_address_t address, vm_size_t size, const char *name)
+{
+    if (!address || size != (vm_size_t)0x100000000ULL) return;
+    g_madeira_guest_shadow_base = address;
+    g_madeira_guest_shadow_size = size;
+    madeira_publish_hex_env("WINE_IOS_FEX_GUEST_BIAS", (unsigned long long)address);
+    madeira_publish_hex_env("WINE_IOS_FEX_GUEST_LIMIT", 0x100000000ULL);
+    madeira_publish_hex_env("WINE_IOS_FEX_REDIRECT_GUEST", 0ULL);
+    madeira_publish_hex_env("WINE_IOS_FEX_REDIRECT_HOST", 0ULL);
+
+    char stage[192];
+    snprintf(stage, sizeof(stage), "GUEST_SHADOW_PUBLISHED_%s_BASE_0x%llx_SIZE_0x%llx",
+             name, (unsigned long long)address, (unsigned long long)size);
+    madeira_bridge_checkpoint(stage);
+}
+
 static kern_return_t madeira_probe_fixed_window(vm_address_t requested,
                                                    vm_size_t size,
                                                    const char *name)
@@ -142,6 +166,40 @@ static kern_return_t madeira_probe_anywhere(vm_size_t size, const char *name)
     return result;
 }
 
+static kern_return_t madeira_reserve_guest_shadow_anywhere(vm_size_t size, const char *name)
+{
+    vm_address_t address = 0;
+    kern_return_t result = vm_allocate(mach_task_self(), &address, size, VM_FLAGS_ANYWHERE);
+    char stage[192];
+    if (result == KERN_SUCCESS) {
+        snprintf(stage, sizeof(stage), "%s_RESERVE_OK_ADDR_0x%llx_SIZE_0x%llx",
+                 name, (unsigned long long)address, (unsigned long long)size);
+        madeira_bridge_checkpoint(stage);
+        if (size == (vm_size_t)0x100000000ULL) {
+            madeira_publish_guest_shadow_arena(address, size, name);
+        } else {
+            (void)vm_deallocate(mach_task_self(), address, size);
+        }
+    } else {
+        snprintf(stage, sizeof(stage), "%s_RESERVE_FAIL_KR_%d", name, (int)result);
+        madeira_bridge_checkpoint(stage);
+    }
+    return result;
+}
+
+static void madeira_configure_guest_shadow_arena(void)
+{
+    if (g_madeira_guest_shadow_base || getenv("WINE_IOS_FEX_GUEST_BIAS")) return;
+    if (madeira_reserve_guest_shadow_anywhere((vm_size_t)0x100000000ULL, "GUEST_SHADOW_4G") == KERN_SUCCESS
+        && g_madeira_guest_shadow_base) return;
+
+    /* Probe-only fallbacks. These prove capacity but are not published until
+     * sparse guest-page mapping is fully wired. */
+    (void)madeira_reserve_guest_shadow_anywhere((vm_size_t)0xC0000000ULL, "GUEST_SHADOW_3G_PROBE_ONLY");
+    (void)madeira_reserve_guest_shadow_anywhere((vm_size_t)0x80000000ULL, "GUEST_SHADOW_2G_PROBE_ONLY");
+    madeira_bridge_checkpoint("GUEST_SHADOW_LINEAR_4G_UNAVAILABLE_SPARSE_REQUIRED");
+}
+
 int madeira_low_va_probe(void)
 {
     const kern_return_t low = madeira_probe_fixed_window(
@@ -164,6 +222,7 @@ int madeira_low_va_probe(void)
     (void)madeira_probe_anywhere((vm_size_t)0x40000000ULL, "ANYWHERE_1G");
     (void)madeira_probe_anywhere((vm_size_t)0x20000000ULL, "ANYWHERE_512M");
 
+    madeira_configure_guest_shadow_arena();
     return low == KERN_SUCCESS ? 1 : -(int)low;
 }
 
@@ -176,8 +235,8 @@ if "static void madeira_bridge_checkpoint(" not in s:
 s = s.replace(signature,
               signature + '    madeira_bridge_checkpoint("WINE_PROCESS_START_ENTER");\n',
               1)
-for include in ("#include <fcntl.h>", "#include <unistd.h>", "#include <mach/mach.h>"):
+for include in ("#include <fcntl.h>", "#include <unistd.h>", "#include <mach/mach.h>", "#include <stdlib.h>"):
     if include not in s:
         s = include + "\n" + s
 wine_bridge.write_text(s, encoding="utf-8")
-print("Installed pre-FEX launch, sequence, and Wine bridge checkpoints")
+print("Installed pre-FEX launch, sequence, Wine bridge checkpoints, and guest-shadow arena publisher")
