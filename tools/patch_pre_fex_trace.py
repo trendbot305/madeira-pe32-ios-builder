@@ -357,6 +357,46 @@ startup_replacements = [
     ("            setenv(\"MADEIRA_DOCS_DIR\", docs.UTF8String, 1);\n",
      "            setenv(\"MADEIRA_DOCS_DIR\", docs.UTF8String, 1);\n"
      "            madeira_bridge_checkpoint(\"WINE_THREAD_DOCS_DIR_SET\");\n"),
+    ("            NSString *caPath = [[NSBundle mainBundle] pathForResource:@\"cacert\" ofType:@\"pem\"];\n",
+     "            madeira_bridge_checkpoint(\"WINE_THREAD_CA_LOOKUP_BEGIN\");\n"
+     "            NSString *caPath = [[NSBundle mainBundle] pathForResource:@\"cacert\" ofType:@\"pem\"];\n"
+     "            madeira_bridge_checkpoint(caPath ? \"WINE_THREAD_CA_LOOKUP_OK\" : \"WINE_THREAD_CA_LOOKUP_MISSING\");\n"),
+    ("            NSString *logPath2 = [docs stringByAppendingPathComponent:@\"madeira-log.txt\"];\n",
+     "            madeira_bridge_checkpoint(\"WINE_THREAD_STDIO_REDIRECT_BEGIN\");\n"
+     "            NSString *logPath2 = [docs stringByAppendingPathComponent:@\"madeira-log.txt\"];\n"),
+    ("                close(logfd);\n",
+     "                close(logfd);\n"
+     "                madeira_bridge_checkpoint(\"WINE_THREAD_STDIO_REDIRECT_OK\");\n"),
+    ("        const char *madeira_exe = getenv(\"MADEIRA_EXE\");\n",
+     "        madeira_bridge_checkpoint(\"WINE_THREAD_EXE_SELECT_BEGIN\");\n"
+     "        const char *madeira_exe = getenv(\"MADEIRA_EXE\");\n"),
+    ("        const char *bundle_subdir = use_arm64ec ? \"arm64ec-windows\" : \"aarch64-windows\";\n",
+     "        const char *bundle_subdir = use_arm64ec ? \"arm64ec-windows\" : \"aarch64-windows\";\n"
+     "        madeira_bridge_checkpoint(\"WINE_THREAD_EXE_SELECT_OK\");\n"),
+    ("        // Ensure Wine prefix has system32 directory with DLLs from bundle\n",
+     "        madeira_bridge_checkpoint(\"WINE_THREAD_DLL_FARM_BEGIN\");\n"
+     "        // Ensure Wine prefix has system32 directory with DLLs from bundle\n"),
+    ("        // Build the launch path for Wine's PE loader.\n",
+     "        madeira_bridge_checkpoint(\"WINE_THREAD_DLL_FARM_RETURNED\");\n"
+     "        // Build the launch path for Wine's PE loader.\n"),
+    ("        char *argv[24];\n",
+     "        madeira_bridge_checkpoint(\"WINE_THREAD_ARGV_BUILD_BEGIN\");\n"
+     "        char *argv[24];\n"),
+    ("        // Record this thread so wine_ios_exit knows where to longjmp\n",
+     "        madeira_bridge_checkpoint(\"WINE_THREAD_PRE_WINE_MAIN_SETUP_OK\");\n"
+     "        // Record this thread so wine_ios_exit knows where to longjmp\n"),
+    ("        LOG(\"Calling __wine_main...\");\n",
+     "        madeira_bridge_checkpoint(\"WINE_THREAD_WINE_MAIN_LOG_BEGIN\");\n"
+     "        LOG(\"Calling __wine_main...\");\n"
+     "        madeira_bridge_checkpoint(\"WINE_THREAD_WINE_MAIN_LOG_RETURNED\");\n"),
+    ("        if (setjmp(wine_ios_exit_jmpbuf) == 0) {\n",
+     "        madeira_bridge_checkpoint(\"WINE_THREAD_SETJMP_BEGIN\");\n"
+     "        if (setjmp(wine_ios_exit_jmpbuf) == 0) {\n"
+     "            madeira_bridge_checkpoint(\"WINE_THREAD_SETJMP_INITIAL\");\n"
+     "            madeira_bridge_checkpoint(\"WINE_THREAD_WINE_MAIN_ENTER\");\n"),
+    ("            __wine_main(argc, argv);\n",
+     "            __wine_main(argc, argv);\n"
+     "            madeira_bridge_checkpoint(\"WINE_THREAD_WINE_MAIN_RETURNED\");\n"),
 ]
 for old, new in startup_replacements:
     if old not in s:
@@ -367,4 +407,4 @@ for include in ("#include <fcntl.h>", "#include <unistd.h>", "#include <signal.h
     if include not in s:
         s = include + "\n" + s
 wine_bridge.write_text(s, encoding="utf-8")
-print("Installed pre-FEX launch, per-operation Wine startup, and early fatal-signal checkpoints")
+print("Installed v55 checkpoints through CA/log setup, DLL farms, argv, setjmp, and __wine_main entry")
