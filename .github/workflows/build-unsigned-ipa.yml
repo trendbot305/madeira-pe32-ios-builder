@@ -634,6 +634,13 @@ jobs:
           test -f external/Madeira/app/Madeira/i386-windows/ntdll.dll
           test -f external/Madeira/app/Madeira/aarch64-windows/libwow64fex.dll
           test -f external/Madeira/app/Madeira/aarch64-windows/xtajit.dll
+          # Build-time proof that the exact PE32 image and required i386 loader
+          # modules are present in the bundle used to create SysWOW64 on device.
+          test -f external/Madeira/app/Madeira/i386-windows/madeira-pe32-probe.exe
+          test -f external/Madeira/app/Madeira/i386-windows/kernel32.dll
+          test -f external/Madeira/app/Madeira/i386-windows/kernelbase.dll
+          file external/Madeira/app/Madeira/i386-windows/madeira-pe32-probe.exe
+          shasum -a 256 external/Madeira/app/Madeira/i386-windows/madeira-pe32-probe.exe
           mkdir -p external/Madeira/app/Madeira/x86_64-vcruntime
 
       - name: Audit native linker inputs
