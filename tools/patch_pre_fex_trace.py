@@ -107,11 +107,11 @@ static void madeira_bridge_checkpoint(const char *stage)
 probe_function = r'''
 int madeira_low_va_probe(void)
 {
-    mach_vm_address_t address = 0x70000000ULL;
-    mach_vm_size_t size = 0x4000;
-    kern_return_t result = mach_vm_allocate(mach_task_self(), &address, size, VM_FLAGS_FIXED);
+    vm_address_t address = 0x70000000ULL;
+    vm_size_t size = 0x4000;
+    kern_return_t result = vm_allocate(mach_task_self(), &address, size, VM_FLAGS_FIXED);
     if (result == KERN_SUCCESS) {
-        (void)mach_vm_deallocate(mach_task_self(), address, size);
+        (void)vm_deallocate(mach_task_self(), address, size);
         return 1;
     }
     return -(int)result;
@@ -126,7 +126,7 @@ if "static void madeira_bridge_checkpoint(" not in s:
 s = s.replace(signature,
               signature + '    madeira_bridge_checkpoint("WINE_PROCESS_START_ENTER");\n',
               1)
-for include in ("#include <fcntl.h>", "#include <unistd.h>", "#include <mach/mach.h>", "#include <mach/mach_vm.h>"):
+for include in ("#include <fcntl.h>", "#include <unistd.h>", "#include <mach/mach.h>"):
     if include not in s:
         s = include + "\n" + s
 wine_bridge.write_text(s, encoding="utf-8")
