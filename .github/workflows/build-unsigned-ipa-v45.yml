@@ -1,4 +1,4 @@
-name: Build Madeira PE32 guest-shadow IPA v50 fast
+name: Build Madeira PE32 guest-shadow IPA v50 fast r2
 
 on:
   workflow_dispatch:
