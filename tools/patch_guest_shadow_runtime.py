@@ -31,6 +31,9 @@ for include in ("#include <cstdlib>", "#include <cerrno>"):
     if include not in s:
         s = include + "\n" + s
 
+if 'extern "C" int madeira_guest_shadow_ensure(void);' not in s:
+    s = 'extern "C" int madeira_guest_shadow_ensure(void);\n' + s
+
 # Improve the existing fault handler so a translated high host fault names the
 # logical 32-bit guest address before normal fatal handling.
 old = """static FEXCore::Core::InternalThreadState *g_current_thread = nullptr;
@@ -112,6 +115,11 @@ int64_t fex_test_guest_shadow32(void) {
         return finish(-1);
     }
 
+    if (!madeira_guest_shadow_ensure()) {
+        fex_log("SHADOW_FAIL: 4GiB guest-shadow reservation unavailable after JIT pool");
+        return finish(-17);
+    }
+
     FEXCore::Allocator::mmap = fex_mmap_hook;
     FEXCore::Allocator::munmap = fex_munmap_hook;
     LogMan::Msg::InstallHandler(FEXLogHandler);
@@ -157,9 +165,9 @@ int64_t fex_test_guest_shadow32(void) {
     constexpr uint64_t StackGuestPage = 0x0060C000ULL;
     constexpr uint64_t StackGuestTop = 0x0060FFF0ULL;
 
-    // Reuse the process-lifetime 4GiB arena reserved by the startup probe
-    // when available. Allocating a second 4GiB window would turn a successful
-    // device into an artificial sparse-fallback result.
+    // Reuse the process-lifetime 4GiB arena reserved after the JIT pool is
+    // ready. Allocating a second 4GiB window would turn a successful device
+    // into an artificial sparse-fallback result.
     bool BorrowedLinearShadow = false;
     void *LinearShadow = MAP_FAILED;
     if (const char *Published = getenv("WINE_IOS_FEX_GUEST_BIAS")) {
