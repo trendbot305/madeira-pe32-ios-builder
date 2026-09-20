@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - fix/ios-guest-va-translation
     paths:
       - ".github/workflows/build-unsigned-ipa-v45.yml"
       - "tools/patch_macho_pagezero.py"
