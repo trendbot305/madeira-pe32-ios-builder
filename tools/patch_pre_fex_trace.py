@@ -272,6 +272,23 @@ startup_replacements = [
     ("        pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);\n",
      "        pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);\n"
      "        madeira_bridge_checkpoint(\"WINE_THREAD_QOS_RETURNED\");\n"),
+    ("        LOG(\"Wine process thread started\");\n",
+     "        madeira_bridge_checkpoint(\"WINE_THREAD_LOG_BEGIN\");\n"
+     "        LOG(\"Wine process thread started\");\n"
+     "        madeira_bridge_checkpoint(\"WINE_THREAD_LOG_RETURNED\");\n"),
+    ("        madeira_seed_prefix_if_needed(g_prefix_path);\n",
+     "        madeira_bridge_checkpoint(\"WINE_THREAD_PREFIX_SEED_BEGIN\");\n"
+     "        madeira_seed_prefix_if_needed(g_prefix_path);\n"
+     "        madeira_bridge_checkpoint(\"WINE_THREAD_PREFIX_SEED_RETURNED\");\n"),
+    ("        setenv(\"WINEPREFIX\", g_prefix_path, 1);\n",
+     "        setenv(\"WINEPREFIX\", g_prefix_path, 1);\n"
+     "        madeira_bridge_checkpoint(\"WINE_THREAD_WINEPREFIX_SET\");\n"),
+    ("        setenv(\"HOME\", g_prefix_path, 1);\n",
+     "        setenv(\"HOME\", g_prefix_path, 1);\n"
+     "        madeira_bridge_checkpoint(\"WINE_THREAD_HOME_SET\");\n"),
+    ("        setenv(\"WINELOADERNOEXEC\", \"1\", 1);\n",
+     "        setenv(\"WINELOADERNOEXEC\", \"1\", 1);\n"
+     "        madeira_bridge_checkpoint(\"WINE_THREAD_LOADERNOEXEC_SET\");\n"),
 ]
 for old, new in startup_replacements:
     if old not in s:
