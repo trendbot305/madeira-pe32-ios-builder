@@ -44,7 +44,10 @@ jobs:
         run: |
           git -C external/Madeira/FEX apply --check "$GITHUB_WORKSPACE/patches/fex-darwin-guest-memory-bias-stage3.patch"
           git -C external/Madeira/FEX apply "$GITHUB_WORKSPACE/patches/fex-darwin-guest-memory-bias-stage3.patch"
+          git -C external/Madeira/FEX apply --check "$GITHUB_WORKSPACE/patches/fex-darwin-guest-memory-bias-stage4-fetch.patch"
+          git -C external/Madeira/FEX apply "$GITHUB_WORKSPACE/patches/fex-darwin-guest-memory-bias-stage4-fetch.patch"
           grep -q "SetGuestMemoryAddressBias" external/Madeira/FEX/FEXCore/include/FEXCore/Core/Context.h
+          grep -q "Guest-shadow atomic add requires host LSE atomics" external/Madeira/FEX/FEXCore/Source/Interface/Core/JIT/AtomicOps.cpp
 
       - name: Install host dependencies
         run: |
@@ -370,14 +373,19 @@ jobs:
             git -C external/Madeira/FEX apply --check "$GITHUB_WORKSPACE/patches/fex-darwin-guest-memory-bias-stage3.patch"
             git -C external/Madeira/FEX apply "$GITHUB_WORKSPACE/patches/fex-darwin-guest-memory-bias-stage3.patch"
           fi
+          if ! grep -q "Guest-shadow atomic add requires host LSE atomics" external/Madeira/FEX/FEXCore/Source/Interface/Core/JIT/AtomicOps.cpp; then
+            git -C external/Madeira/FEX apply --check "$GITHUB_WORKSPACE/patches/fex-darwin-guest-memory-bias-stage4-fetch.patch"
+            git -C external/Madeira/FEX apply "$GITHUB_WORKSPACE/patches/fex-darwin-guest-memory-bias-stage4-fetch.patch"
+          fi
           grep -q "SetGuestMemoryAddressBias" external/Madeira/FEX/FEXCore/include/FEXCore/Core/Context.h
+          grep -q "Guest-shadow atomic add requires host LSE atomics" external/Madeira/FEX/FEXCore/Source/Interface/Core/JIT/AtomicOps.cpp
 
       - name: Restore native FEX cache
         id: cache-fex
         uses: actions/cache/restore@v4
         with:
           path: external/Madeira/FEX/build-ios
-          key: fex-ios-${{ runner.os }}-97e2ce26-guest-bias-v1-${{ hashFiles('patches/fex-darwin-guest-memory-bias-stage3.patch') }}
+          key: fex-ios-${{ runner.os }}-97e2ce26-guest-shadow-v2-${{ hashFiles('patches/fex-darwin-guest-memory-bias-stage3.patch', 'patches/fex-darwin-guest-memory-bias-stage4-fetch.patch') }}
 
       - name: Guard ARM64EC-only diagnostics in native iOS FEX
         if: steps.cache-fex.outputs.cache-hit != 'true'
@@ -451,7 +459,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: external/Madeira/FEX/build-ios
-          key: fex-ios-${{ runner.os }}-97e2ce26-guest-bias-v1-${{ hashFiles('patches/fex-darwin-guest-memory-bias-stage3.patch') }}
+          key: fex-ios-${{ runner.os }}-97e2ce26-guest-shadow-v2-${{ hashFiles('patches/fex-darwin-guest-memory-bias-stage3.patch', 'patches/fex-darwin-guest-memory-bias-stage4-fetch.patch') }}
 
       - name: Restore native wineserver cache
         id: cache-wineserver
@@ -603,6 +611,12 @@ jobs:
           test -f external/Madeira/app/Madeira/aarch64-windows/libwow64fex.dll
           test -f external/Madeira/app/Madeira/aarch64-windows/xtajit.dll
           mkdir -p external/Madeira/app/Madeira/x86_64-vcruntime
+
+      - name: Install PE32 guest-shadow runtime gate
+        run: |
+          python3 tools/patch_guest_shadow_runtime.py external/Madeira
+          grep -q "fex_test_guest_shadow32" external/Madeira/app/Madeira/FEXBridge.mm
+          grep -q 'Button("PE32 Shadow Test")' external/Madeira/app/Madeira/ContentView.swift
 
       - name: Audit native linker inputs
         run: |
