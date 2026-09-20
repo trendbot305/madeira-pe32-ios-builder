@@ -126,7 +126,7 @@ if "static void madeira_bridge_checkpoint(" not in s:
 s = s.replace(signature,
               signature + '    madeira_bridge_checkpoint("WINE_PROCESS_START_ENTER");\n',
               1)
-for include in ("#include <fcntl.h>", "#include <unistd.h>", "#include <mach/mach.h>"):
+for include in ("#include <fcntl.h>", "#include <unistd.h>", "#include <mach/mach.h>", "#include <mach/mach_vm.h>"):
     if include not in s:
         s = include + "\n" + s
 wine_bridge.write_text(s, encoding="utf-8")
