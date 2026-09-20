@@ -402,11 +402,37 @@ print(f"Installed {statement_no} Wine-process statement checkpoints")
 # robust (use the owned duplicate, not the caller's temporary pointer) and add
 # descriptive checkpoints on the actual Wine worker thread so the next crash
 # cannot be mis-attributed to the handoff thread.
-owned_old = '    g_prefix_path = strdup(prefix_path);\n\n    madeira_bridge_checkpoint("WINEPROC_STEP_03_BEGIN");\n    LOG("Starting Wine process with prefix: %{public}s", prefix_path);'
-owned_new = '    g_prefix_path = strdup(prefix_path);\n    if (!g_prefix_path) {\n        madeira_bridge_checkpoint("WINEPROC_PREFIX_DUP_FAIL");\n        return -1;\n    }\n\n    madeira_bridge_checkpoint("WINEPROC_STEP_03_BEGIN");\n    LOG("Starting Wine process with prefix: %{public}s", g_prefix_path);'
+owned_old = '''    madeira_bridge_checkpoint("WINEPROC_STEP_01_BEGIN");
+    g_prefix_path = strdup(prefix_path);
+    madeira_bridge_checkpoint("WINEPROC_STEP_01_OK");
+'''
+owned_new = '''    madeira_bridge_checkpoint("WINEPROC_STEP_01_BEGIN");
+    g_prefix_path = strdup(prefix_path);
+    if (!g_prefix_path) {
+        madeira_bridge_checkpoint("WINEPROC_PREFIX_DUP_FAIL");
+        return -1;
+    }
+    madeira_bridge_checkpoint("WINEPROC_STEP_01_OK");
+'''
 if owned_old not in s:
     raise SystemExit("owned-prefix launcher anchor missing")
 s = s.replace(owned_old, owned_new, 1)
+
+log_old = '    LOG("Starting Wine process with prefix: %{public}s", prefix_path);'
+log_new = '    LOG("Starting Wine process with prefix: %{public}s", g_prefix_path);'
+if log_old not in s:
+    raise SystemExit("owned-prefix LOG anchor missing")
+s = s.replace(log_old, log_new, 1)
+
+# The worker is defined earlier than madeira_bridge_checkpoint's definition.
+# Give it a forward declaration before inserting calls into that worker.
+worker_sig = 'static void *wine_process_thread(void *arg) {'
+if 'static void madeira_bridge_checkpoint(const char *stage);\n\n' + worker_sig not in s:
+    if worker_sig not in s:
+        raise SystemExit("Wine worker signature missing")
+    s = s.replace(worker_sig,
+                  'static void madeira_bridge_checkpoint(const char *stage);\n\n' + worker_sig,
+                  1)
 
 worker_replacements = [
     (
