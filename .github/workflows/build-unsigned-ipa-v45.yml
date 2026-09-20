@@ -20,6 +20,7 @@ concurrency:
 
 jobs:
   fex-and-probe:
+    if: false # Reuse the verified Build 79-fixed artifact from successful v50.
     name: Build FEX runtime and PE32 probe
     runs-on: ubuntu-22.04
     steps:
@@ -183,7 +184,6 @@ jobs:
           retention-days: 7
 
   device-ipa:
-    needs: fex-and-probe
     name: Build unsigned iPhone IPA
     runs-on: macos-latest
     steps:
@@ -546,6 +546,9 @@ jobs:
       - name: Download Build 79-fixed FEX and probe
         uses: actions/download-artifact@v4
         with:
+          github-token: ${{ github.token }}
+          repository: trendbot305/madeira-pe32-ios-builder
+          run-id: 35524628434
           name: fex-and-pe32-probe
           path: kit/fex
 
