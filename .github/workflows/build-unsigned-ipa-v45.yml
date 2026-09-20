@@ -1,4 +1,4 @@
-name: Build Madeira PE32 startup localisation v56
+name: Build Madeira PE32 WoW64 CHPEv2 test v57
 
 on:
   workflow_dispatch:
@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   fex-and-probe:
-    if: false # Reuse the verified Build 79-fixed artifact from successful v50.
+    # v57 rebuilds the WoW64 FEX DLL so we can test the upstream CHPEv2 thread/exception fix.
     name: Build FEX runtime and PE32 probe
     runs-on: ubuntu-22.04
     steps:
@@ -38,6 +38,12 @@ jobs:
           submodules: recursive
           fetch-depth: 1
           persist-credentials: false
+
+      - name: Apply upstream WoW64 CHPEv2 thread/exception fix
+        run: |
+          git -C external/Madeira/FEX fetch --depth 1 origin af04940466a028bdfc8fcbea8318e3a4719e561f
+          git -C external/Madeira/FEX cherry-pick af04940466a028bdfc8fcbea8318e3a4719e561f
+          git -C external/Madeira/FEX log -1 --oneline
 
       - name: Apply Madeira Build 79 FEX VirtualProtect fix
         run: |
@@ -184,6 +190,7 @@ jobs:
           retention-days: 7
 
   device-ipa:
+    needs: [fex-and-probe]
     name: Build unsigned iPhone IPA
     runs-on: macos-latest
     steps:
@@ -543,12 +550,9 @@ jobs:
           echo "LLVM iOS   : ${{ steps.cache-llvm-ios.outputs.cache-hit }}"
           echo "DXMT       : ${{ steps.cache-dxmt.outputs.cache-hit }}"
 
-      - name: Download Build 79-fixed FEX and probe
+      - name: Download v57 FEX and probe
         uses: actions/download-artifact@v4
         with:
-          github-token: ${{ github.token }}
-          repository: trendbot305/madeira-pe32-ios-builder
-          run-id: 35524628434
           name: fex-and-pe32-probe
           path: kit/fex
 
