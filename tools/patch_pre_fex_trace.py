@@ -102,6 +102,81 @@ s = s.replace(wine_old, wine_new, 1)
 
 content_view.write_text(s, encoding="utf-8")
 
+# Instrument the actual StikJIT pool allocator. Run 35 now dies at
+# WINESEQ_POOL_ALLOC_FAIL, so record the debugger RX placement, why each
+# placement is rejected, deallocation result, and RW remap/protect results.
+stik = root / "app/Madeira/StikJITHelper.swift"
+j = stik.read_text(encoding="utf-8")
+pool_replacements = [
+    (
+        '        LogStore.shared.log("Allocating \\(poolSize / 1024 / 1024)MB JIT pool via debugger...")',
+        '        LogStore.shared.log("Allocating \\(poolSize / 1024 / 1024)MB JIT pool via debugger...")\\n'
+        '        madeiraEarlyCheckpoint("JITPOOL_ENTER_SIZE_\\(poolSize)")',
+    ),
+    (
+        '        for attempt in 0..<3 {\\n'
+        '            guard let p = jit26_prepare_region(nil, poolSize), p != UnsafeMutableRawPointer(bitPattern: 0) else {',
+        '        for attempt in 0..<3 {\\n'
+        '            madeiraEarlyCheckpoint("JITPOOL_RX_ATTEMPT_\\(attempt)_BEGIN")\\n'
+        '            guard let p = jit26_prepare_region(nil, poolSize), p != UnsafeMutableRawPointer(bitPattern: 0) else {\\n'
+        '                madeiraEarlyCheckpoint("JITPOOL_RX_ATTEMPT_\\(attempt)_ALLOC_FAIL")',
+    ),
+    (
+        '            let a = Int(bitPattern: p)\\n'
+        '            let inGuestWindow = a + poolSize > guestLo && a < guestHi',
+        '            let a = Int(bitPattern: p)\\n'
+        '            madeiraEarlyCheckpoint(String(format: "JITPOOL_RX_ATTEMPT_%d_ADDR_0x%llx_SIZE_0x%llx", attempt, UInt64(a), UInt64(poolSize)))\\n'
+        '            let inGuestWindow = a + poolSize > guestLo && a < guestHi',
+    ),
+    (
+        '            if a >= goodLow && !inGuestWindow {\\n'
+        '                rxPtrOpt = p',
+        '            if a >= goodLow && !inGuestWindow {\\n'
+        '                madeiraEarlyCheckpoint("JITPOOL_RX_ATTEMPT_\\(attempt)_ACCEPT")\\n'
+        '                rxPtrOpt = p',
+    ),
+    (
+        '            LogStore.shared.log(String(format: "BAD POOL placement 0x%lx (%@) — re-rolling (attempt %d)",',
+        '            madeiraEarlyCheckpoint("JITPOOL_RX_ATTEMPT_\\(attempt)_REJECT_\\(a < goodLow ? "LOW" : "GUEST_WINDOW")")\\n'
+        '            LogStore.shared.log(String(format: "BAD POOL placement 0x%lx (%@) — re-rolling (attempt %d)",',
+    ),
+    (
+        '            let dkr = vm_deallocate(mach_task_self_, vm_address_t(a), vm_size_t(poolSize))',
+        '            let dkr = vm_deallocate(mach_task_self_, vm_address_t(a), vm_size_t(poolSize))\\n'
+        '            madeiraEarlyCheckpoint("JITPOOL_RX_ATTEMPT_\\(attempt)_DEALLOC_KR_\\(dkr)")',
+    ),
+    (
+        '        guard let rxPtr = rxPtrOpt else {',
+        '        guard let rxPtr = rxPtrOpt else {\\n'
+        '            madeiraEarlyCheckpoint("JITPOOL_NO_VALID_RX_PLACEMENT")',
+    ),
+    (
+        '        let kr1 = vm_remap(',
+        '        madeiraEarlyCheckpoint("JITPOOL_RW_REMAP_BEGIN")\\n'
+        '        let kr1 = vm_remap(',
+    ),
+    (
+        '        guard kr1 == KERN_SUCCESS else {',
+        '        madeiraEarlyCheckpoint("JITPOOL_RW_REMAP_KR_\\(kr1)_ADDR_\\(String(format: "0x%llx", UInt64(rwAddr)))")\\n'
+        '        guard kr1 == KERN_SUCCESS else {',
+    ),
+    (
+        '        let kr2 = vm_protect(mach_task_self_, rwAddr, vm_size_t(poolSize), 0, VM_PROT_READ | VM_PROT_WRITE)',
+        '        let kr2 = vm_protect(mach_task_self_, rwAddr, vm_size_t(poolSize), 0, VM_PROT_READ | VM_PROT_WRITE)\\n'
+        '        madeiraEarlyCheckpoint("JITPOOL_RW_PROTECT_KR_\\(kr2)")',
+    ),
+    (
+        '        LogStore.shared.log("JIT pool ready (debugger still attached).", level: .success)',
+        '        madeiraEarlyCheckpoint("JITPOOL_READY")\\n'
+        '        LogStore.shared.log("JIT pool ready (debugger still attached).", level: .success)',
+    ),
+]
+for old, new in pool_replacements:
+    if old not in j:
+        raise SystemExit(f"StikJIT pool instrumentation anchor missing: {old[:100]!r}")
+    j = j.replace(old, new, 1)
+stik.write_text(j, encoding="utf-8")
+
 s = app_file.read_text(encoding="utf-8")
 old = "struct MadeiraApp: App {\n    var body: some Scene {"
 new = '''struct MadeiraApp: App {
