@@ -514,7 +514,7 @@ jobs:
           path: |
             external/Madeira/build/dxmt-ios
             external/Madeira/app/Madeira/libdxmt_combined.a
-          key: dxmt-ios-madeira-97e2ce26-llvm15-ios-v1
+          key: dxmt-ios-madeira-97e2ce26-llvm15-ios-v2
 
       - name: Build Madeira DXMT fork for iOS
         if: steps.cache-dxmt.outputs.cache-hit != 'true'
@@ -576,6 +576,24 @@ jobs:
         with:
           path: external/Madeira/app/Madeira/libdxmt_combined.a
           key: dxmt-ios-madeira-97e2ce26-llvm15-ios-v1
+
+      - name: Restore Xcode module cache
+        id: cache-xcode-modules
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            build/DerivedData/ModuleCache.noindex
+            build/DerivedData/SDKStatCaches.noindex
+          key: xcode-modules-${{ runner.os }}-xcode26.6-ios26.5-v1
+
+      - name: Save Xcode module cache
+        if: always() && steps.cache-xcode-modules.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            build/DerivedData/ModuleCache.noindex
+            build/DerivedData/SDKStatCaches.noindex
+          key: xcode-modules-${{ runner.os }}-xcode26.6-ios26.5-v1
 
       - name: Native cache reuse summary
         run: |
