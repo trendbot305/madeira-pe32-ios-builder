@@ -653,6 +653,24 @@ jobs:
           test -f external/Madeira/app/Madeira/i386-windows/madeira-pe32-probe.exe
           echo "V62_SOURCE_PATCH_OK=1"
 
+      - name: Stamp v63 runtime provenance
+        run: |
+          set -euo pipefail
+          BRIDGE=external/Madeira/app/Madeira/WineProcessBridge.m
+          python3 - "$BRIDGE" "$GITHUB_SHA" <<'PY'
+          from pathlib import Path
+          import sys
+          p=Path(sys.argv[1]); sha=sys.argv[2]
+          s=p.read_text()
+          anchor='        LOG("Target exe: %{public}s (bundle=%{public}s)", madeira_exe, bundle_subdir);'
+          marker=f'        dprintf(STDERR_FILENO, "[BUILD-ID] V63 sha={sha}\\n");\n'
+          if '[BUILD-ID] V63' not in s:
+              if anchor not in s: raise SystemExit("provenance anchor missing")
+              s=s.replace(anchor, marker+anchor, 1)
+              p.write_text(s)
+          PY
+          grep -F '[BUILD-ID] V63' "$BRIDGE"
+
       - name: Audit native linker inputs
         run: |
           set -euo pipefail
@@ -709,6 +727,7 @@ jobs:
           BIN="$APP/Madeira"
           test -f "$BIN"
           strings "$BIN" | grep -F 'SysWOW64 probe path:'
+          strings "$BIN" | grep -F '[BUILD-ID] V63 sha='
           strings "$BIN" | grep -F 'Farm %s: %d links -> %s'
           test -d "$APP/i386-windows"
           test -f "$APP/i386-windows/madeira-pe32-probe.exe"
