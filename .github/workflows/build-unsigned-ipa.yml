@@ -738,18 +738,17 @@ jobs:
         run: |
           xcodebuild -version
           rm -rf build Payload Madeira-PE32-unsigned.ipa
-          xcodebuild             -project external/Madeira/app/Madeira.xcodeproj             -scheme Madeira             -configuration Release             -sdk iphoneos             -destination 'generic/platform=iOS'             -derivedDataPath "$PWD/build/DerivedData"             CODE_SIGNING_ALLOWED=NO             CODE_SIGNING_REQUIRED=NO             IPHONEOS_DEPLOYMENT_TARGET=18.0             OTHER_LDFLAGS='$(inherited) -Wl,-pagezero_size,0x4000'             build
+          xcodebuild             -project external/Madeira/app/Madeira.xcodeproj             -scheme Madeira             -configuration Release             -sdk iphoneos             -destination 'generic/platform=iOS'             -derivedDataPath "$PWD/build/DerivedData"             CODE_SIGNING_ALLOWED=NO             CODE_SIGNING_REQUIRED=NO             IPHONEOS_DEPLOYMENT_TARGET=18.0             OTHER_LDFLAGS='$(inherited)'             build
 
       - name: Verify v62 patch markers in built app
         run: |
           set -euo pipefail
           APP="$(find build/DerivedData/Build/Products/Release-iphoneos -maxdepth 1 -type d -name '*.app' | head -1)"
           BIN="$APP/Madeira"
-          echo "v68 Mach-O PAGEZERO audit"
+          echo "v69 Mach-O PAGEZERO audit (stock iOS layout restored)"
           xcrun vtool -show "$BIN" || true
           PAGEZERO="$(xcrun otool -l "$BIN" | awk '/segname __PAGEZERO/{p=1} p && /vmsize/{print $2; exit}')"
           echo "PAGEZERO=$PAGEZERO"
-          test "$PAGEZERO" = "0x0000000000004000" || { echo "::error::Expected 16KB __PAGEZERO, got $PAGEZERO"; exit 1; }
           test -n "$APP"
           BIN="$APP/Madeira"
           test -f "$BIN"
