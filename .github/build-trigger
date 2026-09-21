@@ -51,3 +51,4 @@ run 65: corrected executable SysWOW64 loop patch + CI assertion
 run 66: WoW64 low-VA process parameters
 run 67: honor WoW64 zero-bits low-VA window in iOS allocator
 run 68: reduced Mach-O PAGEZERO low-VA experiment
+run 69: restore stock pagezero after v68 launch regression
