@@ -154,6 +154,7 @@ def patch_wine_process_bridge(bridge: Path) -> None:
     # iOS allocator can inherit a >4GB scan base, producing an inverted window
     # and STATUS_NO_MEMORY before FEX starts. Seed this specific allocation low.
     env_ios = bridge.parents[2] / "build" / "ntdll-unix" / "env_ios.c"
+    virtual_ios = bridge.parents[2] / "build" / "ntdll-unix" / "virtual_ios.c"
     env_text = env_ios.read_text(encoding="utf-8")
     old_alloc = """    status = NtAllocateVirtualMemory( NtCurrentProcess(), (void **)&wow64_params, limit_2g - 1, &size,
                                       MEM_COMMIT, PAGE_READWRITE );"""
@@ -166,6 +167,31 @@ def patch_wine_process_bridge(bridge: Path) -> None:
             raise SystemExit("Could not patch WoW64 low-VA process-parameter allocation")
         env_text = env_text.replace(old_alloc, new_alloc, 1)
         env_ios.write_text(env_text, encoding="utf-8")
+
+    # v67: zero_bits is a caller-imposed maximum, and WoW64 uses it to require
+    # process parameters below 2GB. Madeira's global iOS scan floor is above 4GB,
+    # so map_view receives an inverted range. Preserve the high floor normally,
+    # but for a genuine low zero_bits ceiling use the Windows low-VA floor.
+    virt_text = virtual_ios.read_text(encoding="utf-8")
+    old_lowva = """            if (!ios_steered)
+                st = allocate_virtual_memory( ret, size_ptr, type, protect, 0, limit, 0, 0 );"""
+    new_lowva = """            if (!ios_steered)
+            {
+                ULONG_PTR low = 0;
+                if (!*ret && limit && limit <= limit_4g)
+                {
+                    low = 0x10000;
+                    dprintf( 2, "[wow64-lowva] zero_bits=%lu limit=0x%llx -> search [0x%llx,0x%llx) rev=v67\\n",
+                             (unsigned long)zero_bits, (unsigned long long)limit,
+                             (unsigned long long)low, (unsigned long long)limit );
+                }
+                st = allocate_virtual_memory( ret, size_ptr, type, protect, low, limit, 0, 0 );
+            }"""
+    if "[wow64-lowva]" not in virt_text:
+        if old_lowva not in virt_text:
+            raise SystemExit("Could not patch iOS low-VA zero_bits allocation path")
+        virt_text = virt_text.replace(old_lowva, new_lowva, 1)
+        virtual_ios.write_text(virt_text, encoding="utf-8")
 
 
 
