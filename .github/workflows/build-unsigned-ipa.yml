@@ -649,6 +649,7 @@ jobs:
           BRIDGE=external/Madeira/app/Madeira/WineProcessBridge.m
           grep -F '{ "syswow64", "i386-windows" }' "$BRIDGE"
           grep -F 'sizeof(farms) / sizeof(farms[0])' "$BRIDGE"
+          grep -F 'iOS/WoW64: explicitly seed the search below 2GB' external/Madeira/build/ntdll-unix/env_ios.c
           grep -F 'SysWOW64 probe path:' "$BRIDGE"
           grep -F 'MADEIRA_FORCE_AARCH64' "$BRIDGE"
           test -f external/Madeira/app/Madeira/i386-windows/madeira-pe32-probe.exe
