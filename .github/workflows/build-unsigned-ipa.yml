@@ -643,6 +643,16 @@ jobs:
           shasum -a 256 external/Madeira/app/Madeira/i386-windows/madeira-pe32-probe.exe
           mkdir -p external/Madeira/app/Madeira/x86_64-vcruntime
 
+      - name: Verify v62 PE32 source patch is compiled
+        run: |
+          set -euo pipefail
+          BRIDGE=external/Madeira/app/Madeira/WineProcessBridge.m
+          grep -F '{ "syswow64", "i386-windows" }' "$BRIDGE"
+          grep -F 'SysWOW64 probe path:' "$BRIDGE"
+          grep -F 'MADEIRA_FORCE_AARCH64' "$BRIDGE"
+          test -f external/Madeira/app/Madeira/i386-windows/madeira-pe32-probe.exe
+          echo "V62_SOURCE_PATCH_OK=1"
+
       - name: Audit native linker inputs
         run: |
           set -euo pipefail
@@ -690,6 +700,22 @@ jobs:
           xcodebuild -version
           rm -rf build Payload Madeira-PE32-unsigned.ipa
           xcodebuild             -project external/Madeira/app/Madeira.xcodeproj             -scheme Madeira             -configuration Release             -sdk iphoneos             -destination 'generic/platform=iOS'             -derivedDataPath "$PWD/build/DerivedData"             CODE_SIGNING_ALLOWED=NO             CODE_SIGNING_REQUIRED=NO             IPHONEOS_DEPLOYMENT_TARGET=18.0             build
+
+      - name: Verify v62 patch markers in built app
+        run: |
+          set -euo pipefail
+          APP="$(find build/DerivedData/Build/Products/Release-iphoneos -maxdepth 1 -type d -name '*.app' | head -1)"
+          test -n "$APP"
+          BIN="$APP/Madeira"
+          test -f "$BIN"
+          strings "$BIN" | grep -F 'SysWOW64 probe path:'
+          strings "$BIN" | grep -F 'Farm %s: %d links -> %s'
+          test -d "$APP/i386-windows"
+          test -f "$APP/i386-windows/madeira-pe32-probe.exe"
+          test -f "$APP/i386-windows/ntdll.dll"
+          test -f "$APP/i386-windows/kernel32.dll"
+          test -f "$APP/i386-windows/kernelbase.dll"
+          echo "V62_BUILT_APP_PATCH_OK=1"
 
       - name: Package unsigned IPA
         run: |
