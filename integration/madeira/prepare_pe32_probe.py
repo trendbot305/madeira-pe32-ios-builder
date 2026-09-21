@@ -125,7 +125,7 @@ def patch_wine_process_bridge(bridge: Path) -> None:
     if '{ "syswow64", "i386-windows" }' not in text:
         raise SystemExit("Madeira SysWOW64 farm patch is incomplete")
 
-    # Verify the PE32 probe is physically reachable through the SysWOW64 farm
+    # Include every farm entry; upstream only iterates its two original farms.\n    text = text.replace("for (int i = 0; i < 2; i++) {", "for (size_t i = 0; i < sizeof(farms) / sizeof(farms[0]); i++) {", 1)\n    if "sizeof(farms) / sizeof(farms[0])" not in text:\n        raise SystemExit("Could not expand Madeira farm loop for SysWOW64")\n\n    # Verify the PE32 probe is physically reachable through the SysWOW64 farm
     # before Wine enters __wine_main. This catches stale/missing bundle links.
     old_log = '''                    dprintf(STDERR_FILENO, "[WineProc] Farm %s: %d links -> %s\\n",
                             farms[i].farm, farmLinked, farms[i].arch);'''
