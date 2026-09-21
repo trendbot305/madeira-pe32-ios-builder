@@ -45,3 +45,4 @@ run 59: cache complete LLVM generated headers; reuse all proven runtime caches
 run 60: generate AirConv Metal headers and reuse stable caches
 run 61: verify SysWOW64 probe path and cached runtime payload
 run 62: enforce compiled SysWOW64 patch and bundled PE32 payload
+run 63: runtime provenance marker + SysWOW64 verification
