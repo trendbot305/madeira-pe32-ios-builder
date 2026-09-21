@@ -150,6 +150,24 @@ def patch_wine_process_bridge(bridge: Path) -> None:
 
     bridge.write_text(text, encoding="utf-8")
 
+    # v66: WoW64 process parameters must live below the 2GB ceiling. Madeira's
+    # iOS allocator can inherit a >4GB scan base, producing an inverted window
+    # and STATUS_NO_MEMORY before FEX starts. Seed this specific allocation low.
+    env_ios = bridge.parents[2] / "build" / "ntdll-unix" / "env_ios.c"
+    env_text = env_ios.read_text(encoding="utf-8")
+    old_alloc = """    status = NtAllocateVirtualMemory( NtCurrentProcess(), (void **)&wow64_params, limit_2g - 1, &size,
+                                      MEM_COMMIT, PAGE_READWRITE );"""
+    new_alloc = """    /* iOS/WoW64: explicitly seed the search below 2GB. */
+    wow64_params = (void *)0x10000;
+    status = NtAllocateVirtualMemory( NtCurrentProcess(), (void **)&wow64_params, limit_2g - 1, &size,
+                                      MEM_COMMIT, PAGE_READWRITE );"""
+    if "iOS/WoW64: explicitly seed the search below 2GB" not in env_text:
+        if old_alloc not in env_text:
+            raise SystemExit("Could not patch WoW64 low-VA process-parameter allocation")
+        env_text = env_text.replace(old_alloc, new_alloc, 1)
+        env_ios.write_text(env_text, encoding="utf-8")
+
+
 
 def patch_xcode_resources(project: Path) -> None:
     text = project.read_text(encoding="utf-8")
