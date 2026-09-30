@@ -53,3 +53,4 @@ run 68: reduced Mach-O PAGEZERO low-VA experiment
 run 69: restore stock pagezero after v68 launch regression
 run 70: ARM64EC runtime crash diagnostics
 run 71: complete Wine header generation before ntdll build
+run 72: complete Wine graphics header closure before ntdll compile
