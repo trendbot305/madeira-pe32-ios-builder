@@ -468,7 +468,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: external/Madeira/FEX/build-ios
-          key: fex-ios-${{ runner.os }}-d5a8e0a6-native-guards-v2
+          key: fex-ios-${{ runner.os }}-d5a8e0a6-dishonored-trace-v1
 
       - name: Restore native wineserver cache
         id: cache-wineserver
