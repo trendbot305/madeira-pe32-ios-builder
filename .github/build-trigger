@@ -19,23 +19,22 @@ run 20: modern bison in ntdll widl stage
 run 21: frontier-first cached native stages
 run 22: d2d headers + dependency cache + deferred prebuilt assets
 run 23: propidl + oaidl headers + cached widl reuse
-run 24: propidl + oaidl headers + cached widl reuse
-run 25: direct cached-widl header generation
-run 26: oleidl cached-widl header
-run 27: dxgiformat cached-widl header
-run 28: full DWrite D2D header closure
-run 29: complete URLMON XML header closure
-run 30: audited complete graphics header family
-run 31: WiniOS proven DXMT bootstrap
-run 32: fix macOS bash LLVM archive collection
-run 33: build native win32u and audit final linker inputs
-run 34: generate win32u shell COM headers before compile
-run 35: complete win32u shell IDL header closure
-run 36: generate D3D11/D3D12 headers for win32u d3dkmt
-run 37: complete D3D debug-layer header closure
-run 38: replace macOS LLVM with cached iOS LLVM for DXMT
-run 39: build LLVM libraries only for iOS DXMT
-run 40: persistent FEX crash checkpoints on frozen runtime baseline
+run 24: direct cached-widl header generation
+run 25: oleidl cached-widl header
+run 26: dxgiformat cached-widl header
+run 27: full DWrite D2D header closure
+run 28: complete URLMON XML header closure
+run 29: audited complete graphics header family
+run 30: WiniOS proven DXMT bootstrap
+run 31: fix macOS bash LLVM archive collection
+run 32: build native win32u and audit final linker inputs
+run 33: generate win32u shell COM headers before compile
+run 34: complete win32u shell IDL header closure
+run 35: generate D3D11/D3D12 headers for win32u d3dkmt
+run 36: complete D3D debug-layer header closure
+run 37: replace macOS LLVM with cached iOS LLVM for DXMT
+run 38: build LLVM libraries only for iOS DXMT
+run 39: persistent FEX crash checkpoints on frozen runtime baseline
 run 43: instrumented runtime debug IPA with frozen caches
 run 44: Foundation import fix for runtime checkpoints
 run 56: Madeira upstream parity — rebuild pinned FEX/Wine and use Madeira DXMT fork
