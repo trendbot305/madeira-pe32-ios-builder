@@ -174,7 +174,7 @@ jobs:
           ROOT="$PWD/external/Madeira"
           TC="$ROOT/toolchains/llvm-mingw-${LLVM_MINGW_VER}-ucrt-macos-universal/bin"
           mkdir -p out/x64-d3d9
-          "$TC/x86_64-w64-mingw32-clang" -O2 -s -nostdlib             -Wl,--subsystem,console             -Wl,--entry,start             "$ROOT/build/x86-tests/d3d9-cube-x86.c"             -lkernel32 -luser32 -ld3d9             -o out/x64-d3d9/d3d9-cube-x64.exe
+          "$TC/x86_64-w64-mingw32-clang" -O2 -s -nostdlib -fno-builtin -fno-stack-protector             -Wl,--subsystem,console             -Wl,--entry,start             "$ROOT/build/x86-tests/d3d9-cube-x86.c"             -lkernel32 -luser32 -ld3d9             -o out/x64-d3d9/d3d9-cube-x64.exe
           file out/x64-d3d9/d3d9-cube-x64.exe
           "$TC/x86_64-w64-mingw32-objdump" -p out/x64-d3d9/d3d9-cube-x64.exe > out/x64-d3d9/d3d9-cube-x64-objdump.txt
           grep -qi "d3d9.dll" out/x64-d3d9/d3d9-cube-x64-objdump.txt
