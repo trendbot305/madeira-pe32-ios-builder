@@ -54,3 +54,4 @@ run 68: reduced Mach-O PAGEZERO low-VA experiment
 run 69: restore stock pagezero after v68 launch regression
 run 70: Dishonored x64 current-runtime fault provenance
 run 71: Dishonored x64 current runtime trace v1
+run 72: skip unrelated standalone WoW64 FEX gate for x64 IPA
