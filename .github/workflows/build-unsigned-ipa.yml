@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - dishonored-x64-fex-trace
     paths:
       - ".github/build-trigger"
 
