@@ -116,8 +116,33 @@ else
   echo "=== Reusing cached Wine generated headers ==="
 fi
 
+# The first Wine widl bootstrap can successfully build the explicitly requested
+# COM/D2D/DWrite targets while leaving other headers in ntdll's compile closure
+# absent (for example msxml.h and the DXGI family). Once make has built widl,
+# generate every missing header from the pinned Wine IDL tree before compiling
+# ntdll, instead of failing later in the silent existence-check loop below.
+if [ -x "$WINE_BUILD/tools/widl/widl" ]; then
+  WIDL="$WINE_BUILD/tools/widl/widl"
+  mkdir -p "$WINE_BUILD/include"
+  for hdr in wtypesbase wtypes unknwn objidlbase objidl oaidl propidl oleidl \
+             msxml dxgicommon dxgiformat dxgitype dxgi d3dcommon d3d10 d3d10_1 \
+             dcommon d2d1 d2d1_1 d2d1_2 d2d1_3 dwrite dwrite_1 dwrite_2 dwrite_3; do
+    src="$WINE_SRC/include/$hdr.idl"
+    out="$WINE_BUILD/include/$hdr.h"
+    if [ -f "$src" ] && [ ! -f "$out" ]; then
+      echo "widl: generating missing $hdr.h from pinned $hdr.idl"
+      "$WIDL" -h -o "$out" \
+        -I"$WINE_SRC/include" -I"$WINE_BUILD/include" \
+        "$src"
+    fi
+  done
+fi
+
 for hdr in wtypesbase.h wtypes.h unknwn.h objidlbase.h objidl.h oaidl.h propidl.h oleidl.h msxml.h dxgicommon.h dxgiformat.h dxgitype.h dxgi.h d3dcommon.h d3d10.h d3d10_1.h dcommon.h d2d1.h d2d1_1.h d2d1_2.h d2d1_3.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h; do
-  test -f "$WINE_BUILD/include/$hdr"
+  if [ ! -f "$WINE_BUILD/include/$hdr" ]; then
+    echo "Missing required Wine-generated header: $WINE_BUILD/include/$hdr" >&2
+    exit 1
+  fi
 done
 
 # Madeira's ntdll iOS script expects these generated headers at
