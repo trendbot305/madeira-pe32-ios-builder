@@ -30,8 +30,8 @@ jobs:
       - name: Checkout pinned Madeira recursively
         uses: actions/checkout@v4
         with:
-          repository: willfaust/Madeira
-          ref: d5a8e0a60804bddf48a9efa751adec52ba9a4bda
+          repository: bahacan16/madeira-bcd
+          ref: 0046bce1d68e02f2d3a4cb67302fcde042c84c9b
           path: external/Madeira
           submodules: recursive
           fetch-depth: 1
@@ -44,7 +44,7 @@ jobs:
           path: |
             external/Madeira/FEX/build-wow64
             toolchains/llvm-mingw-20260421-ucrt-ubuntu-22.04-x86_64
-          key: fex-wow64-linux-d5a8e0a6-llvmmingw20260421-v2
+          key: fex-wow64-linux-0046bce1-llvmmingw20260421-v2
 
       - name: Install host dependencies
         if: steps.cache-fex-wow64.outputs.cache-hit != 'true'
@@ -124,7 +124,7 @@ jobs:
           path: |
             external/Madeira/FEX/build-wow64
             toolchains/llvm-mingw-20260421-ucrt-ubuntu-22.04-x86_64
-          key: fex-wow64-linux-d5a8e0a6-llvmmingw20260421-v2
+          key: fex-wow64-linux-0046bce1-llvmmingw20260421-v2
 
       - name: Add llvm-mingw to PATH
         run: |
@@ -230,8 +230,8 @@ jobs:
       - name: Checkout pinned Madeira runtime forks
         run: |
           mkdir -p external
-          git clone --filter=blob:none --no-checkout https://github.com/willfaust/Madeira.git external/Madeira
-          git -C external/Madeira fetch --depth 1 origin d5a8e0a60804bddf48a9efa751adec52ba9a4bda
+          git clone --filter=blob:none --no-checkout https://github.com/bahacan16/madeira-bcd.git external/Madeira
+          git -C external/Madeira fetch --depth 1 origin 0046bce1d68e02f2d3a4cb67302fcde042c84c9b
           git -C external/Madeira checkout --detach FETCH_HEAD
           git -C external/Madeira submodule update --init --recursive --depth 1 wine research/dxmt
 
@@ -245,7 +245,7 @@ jobs:
           echo "Madeira: $(git -C external/Madeira rev-parse HEAD)"
           echo "Wine:    $(git -C external/Madeira/wine rev-parse HEAD)"
           echo "FEX:     $(git -C external/Madeira/FEX rev-parse HEAD 2>/dev/null || true)"
-          test "$(git -C external/Madeira rev-parse HEAD)" = "d5a8e0a60804bddf48a9efa751adec52ba9a4bda"
+          test "$(git -C external/Madeira rev-parse HEAD)" = "0046bce1d68e02f2d3a4cb67302fcde042c84c9b"
           test "$(git -C external/Madeira/wine rev-parse HEAD)" = "daa17d0471d88a775cb8c23ef40dd267b94d64c0"
           # The device log already has Madeira's ml885/ml962 fault probes. Keep
           # those intact and add FEX-side compile/block diagnostics below; this
@@ -278,7 +278,7 @@ jobs:
           path: |
             external/Madeira/app/Madeira/libntdll_unix.a
             external/Madeira/build/ntdll-unix/obj
-          key: ntdll-ios-${{ runner.os }}-d5a8e0a6-currentwine-v1-${{ hashFiles('tools/build_madeira_ntdll_ios.sh') }}
+          key: ntdll-ios-${{ runner.os }}-0046bce1-currentwine-v1-${{ hashFiles('tools/build_madeira_ntdll_ios.sh') }}
 
       - name: Build native Madeira ntdll archive
         if: steps.cache-ntdll.outputs.cache-hit != 'true'
@@ -335,14 +335,14 @@ jobs:
           path: |
             external/Madeira/app/Madeira/libntdll_unix.a
             external/Madeira/build/ntdll-unix/obj
-          key: ntdll-ios-${{ runner.os }}-d5a8e0a6-currentwine-v1-${{ hashFiles('tools/build_madeira_ntdll_ios.sh') }}
+          key: ntdll-ios-${{ runner.os }}-0046bce1-currentwine-v1-${{ hashFiles('tools/build_madeira_ntdll_ios.sh') }}
 
       - name: Restore native FreeType cache
         id: cache-freetype
         uses: actions/cache/restore@v4
         with:
           path: external/Madeira/build/freetype-ios/build
-          key: freetype-ios-${{ runner.os }}-d5a8e0a6-ft2133-v2
+          key: freetype-ios-${{ runner.os }}-0046bce1-ft2133-v2
 
       - name: Restore native win32u cache
         id: cache-win32u
@@ -352,7 +352,7 @@ jobs:
             external/Madeira/app/Madeira/libwin32u_unix.a
             external/Madeira/build/win32u-unix/obj
             external/Madeira/build/freetype-ios/build
-          key: win32u-ios-${{ runner.os }}-d5a8e0a6-currentwine-v1-${{ hashFiles('tools/build_madeira_win32u_ios.sh') }}
+          key: win32u-ios-${{ runner.os }}-0046bce1-currentwine-v1-${{ hashFiles('tools/build_madeira_win32u_ios.sh') }}
 
       - name: Build native Madeira win32u archive
         if: steps.cache-win32u.outputs.cache-hit != 'true'
@@ -375,14 +375,14 @@ jobs:
             external/Madeira/app/Madeira/libwin32u_unix.a
             external/Madeira/build/win32u-unix/obj
             external/Madeira/build/freetype-ios/build
-          key: win32u-ios-${{ runner.os }}-d5a8e0a6-currentwine-v1-${{ hashFiles('tools/build_madeira_win32u_ios.sh') }}
+          key: win32u-ios-${{ runner.os }}-0046bce1-currentwine-v1-${{ hashFiles('tools/build_madeira_win32u_ios.sh') }}
 
       - name: Save native FreeType cache
         if: steps.cache-freetype.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: external/Madeira/build/freetype-ios/build
-          key: freetype-ios-${{ runner.os }}-d5a8e0a6-ft2133-v2
+          key: freetype-ios-${{ runner.os }}-0046bce1-ft2133-v2
 
       - name: Checkout pinned FEX only after ntdll passes
         run: |
@@ -395,7 +395,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: external/Madeira/FEX/build-ios
-          key: fex-ios-${{ runner.os }}-d5a8e0a6-dishonored-trace-v1
+          key: fex-ios-${{ runner.os }}-0046bce1-dishonored-trace-v1
 
       - name: Guard ARM64EC-only diagnostics in native iOS FEX
         if: steps.cache-fex.outputs.cache-hit != 'true'
@@ -469,14 +469,14 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: external/Madeira/FEX/build-ios
-          key: fex-ios-${{ runner.os }}-d5a8e0a6-dishonored-trace-v1
+          key: fex-ios-${{ runner.os }}-0046bce1-dishonored-trace-v1
 
       - name: Restore native wineserver cache
         id: cache-wineserver
         uses: actions/cache/restore@v4
         with:
           path: external/Madeira/app/Madeira/libwineserver.a
-          key: wineserver-ios-${{ runner.os }}-d5a8e0a6-currentwine-v1-${{ hashFiles('tools/build_madeira_wineserver_ios.sh') }}
+          key: wineserver-ios-${{ runner.os }}-0046bce1-currentwine-v1-${{ hashFiles('tools/build_madeira_wineserver_ios.sh') }}
 
       - name: Build native Madeira wineserver archive
         if: steps.cache-wineserver.outputs.cache-hit != 'true'
@@ -494,7 +494,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: external/Madeira/app/Madeira/libwineserver.a
-          key: wineserver-ios-${{ runner.os }}-d5a8e0a6-currentwine-v1-${{ hashFiles('tools/build_madeira_wineserver_ios.sh') }}
+          key: wineserver-ios-${{ runner.os }}-0046bce1-currentwine-v1-${{ hashFiles('tools/build_madeira_wineserver_ios.sh') }}
 
       - name: Restore LLVM 15 iOS cache
         id: cache-llvm-ios
@@ -529,7 +529,7 @@ jobs:
           path: |
             external/Madeira/build/dxmt-ios
             external/Madeira/app/Madeira/libdxmt_combined.a
-          key: dxmt-ios-madeira-d5a8e0a6-llvm15-ios-v3
+          key: dxmt-ios-madeira-0046bce1-llvm15-ios-v3
 
       - name: Build Madeira DXMT fork for iOS
         if: steps.cache-dxmt.outputs.cache-hit != 'true'
@@ -590,7 +590,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: external/Madeira/app/Madeira/libdxmt_combined.a
-          key: dxmt-ios-madeira-d5a8e0a6-llvm15-ios-v3
+          key: dxmt-ios-madeira-0046bce1-llvm15-ios-v3
 
       - name: Restore Xcode module cache
         id: cache-xcode-modules
@@ -753,7 +753,7 @@ jobs:
         run: |
           set -euo pipefail
           # Guard against accidentally producing another old-runtime IPA.
-          test "$(git -C external/Madeira rev-parse HEAD)" = "d5a8e0a60804bddf48a9efa751adec52ba9a4bda"
+          test "$(git -C external/Madeira rev-parse HEAD)" = "0046bce1d68e02f2d3a4cb67302fcde042c84c9b"
           test "$(git -C external/Madeira/wine rev-parse HEAD)" = "daa17d0471d88a775cb8c23ef40dd267b94d64c0"
           test "$(git -C external/Madeira/FEX rev-parse HEAD)" = "2838f3be52437620348264ada6c41042a9085290"
           grep -F 'ml962' external/Madeira/wine/dlls/ntdll/signal_arm64ec.c || true
@@ -810,4 +810,4 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-# DISHONORED_X64_TRACE_TRIGGER=2
+# DISHONORED_X64_TRACE_TRIGGER=229
