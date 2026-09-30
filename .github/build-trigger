@@ -56,3 +56,4 @@ run 70: Dishonored x64 current-runtime fault provenance
 run 71: Dishonored x64 current runtime trace v1
 run 72: skip unrelated standalone WoW64 FEX gate for x64 IPA
 run 73: exact madeira-bcd build 229 baseline + Dishonored x64 diagnostics
+run 74 exact BCD229 native workflow
