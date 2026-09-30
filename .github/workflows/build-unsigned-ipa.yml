@@ -809,3 +809,5 @@ jobs:
             out/madeira-pe32-device-manifest.json
           if-no-files-found: error
           retention-days: 7
+
+# DISHONORED_X64_TRACE_TRIGGER=1
