@@ -234,6 +234,15 @@ jobs:
           git -C external/Madeira checkout --detach FETCH_HEAD
           git -C external/Madeira submodule update --init --recursive --depth 1 wine research/dxmt
 
+      - name: Record exact runtime source revisions
+        run: |
+          set -euo pipefail
+          {
+            echo "Madeira=$(git -C external/Madeira rev-parse HEAD)"
+            echo "FEX=$(git -C external/Madeira/FEX rev-parse HEAD)"
+            echo "Wine=$(git -C external/Madeira/wine rev-parse HEAD)"
+          } | tee out-runtime-revisions.txt
+
       - name: Add persistent runtime crash checkpoints
         run: |
           python3 tools/instrument_madeira_runtime.py external/Madeira
@@ -762,6 +771,27 @@ jobs:
           test -f "$APP/i386-windows/kernelbase.dll"
           echo "V62_BUILT_APP_PATCH_OK=1"
 
+      - name: Capture build identity and ARM64EC runtime diagnostics
+        run: |
+          set -euo pipefail
+          APP="$(find build/DerivedData/Build/Products/Release-iphoneos -maxdepth 1 -type d -name '*.app' | head -1)"
+          test -n "$APP"
+          BIN="$APP/Madeira"
+          mkdir -p out/runtime-diagnostics
+          cp out-runtime-revisions.txt out/runtime-diagnostics/
+          shasum -a 256 "$BIN" > out/runtime-diagnostics/Madeira.sha256
+          xcrun dwarfdump --uuid "$BIN" > out/runtime-diagnostics/Madeira.uuid.txt
+          xcrun otool -L "$BIN" > out/runtime-diagnostics/Madeira.dependencies.txt
+          find external/Madeira -type f \( -iname 'libarm64ecfex.dll' -o -iname 'libarm64ecfex.dll.map' -o -iname 'libarm64ecfex.pdb' \) -print > out/runtime-diagnostics/arm64ec-runtime-files.txt
+          while IFS= read -r runtime; do
+            test -n "$runtime" || continue
+            cp "$runtime" out/runtime-diagnostics/
+            shasum -a 256 "$runtime" >> out/runtime-diagnostics/runtime.sha256
+            xcrun llvm-readobj --file-headers --sections --symbols "$runtime" > "out/runtime-diagnostics/$(basename "$runtime").readobj.txt" || true
+            xcrun llvm-objdump --private-headers --syms "$runtime" > "out/runtime-diagnostics/$(basename "$runtime").objdump.txt" || true
+          done < out/runtime-diagnostics/arm64ec-runtime-files.txt
+          strings "$BIN" | grep -E 'FEX|ARM64EC|BUILD-ID' > out/runtime-diagnostics/runtime-markers.txt || true
+
       - name: Package unsigned IPA
         run: |
           APP="$(find build/DerivedData/Build/Products/Release-iphoneos -maxdepth 1 -type d -name '*.app' | head -1)"
@@ -783,3 +813,11 @@ jobs:
             out/madeira-pe32-device-manifest.json
           if-no-files-found: error
           retention-days: 7
+
+      - name: Upload runtime diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: madeira-runtime-diagnostics
+          path: out/runtime-diagnostics
+          if-no-files-found: warn
+          retention-days: 14
