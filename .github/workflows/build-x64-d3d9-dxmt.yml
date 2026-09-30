@@ -115,21 +115,58 @@ jobs:
           set -euo pipefail
           ROOT="$PWD/external/Madeira"
           TC="$ROOT/toolchains/llvm-mingw-${LLVM_MINGW_VER}-ucrt-macos-universal/bin"
-          D3D9="$ROOT/research/dxmt/build-arm64ec/src/d3d9/d3d9.dll"
-          WMT="$ROOT/research/dxmt/build-arm64ec/src/winemetal/winemetal.dll"
-          file "$D3D9" "$WMT"
+          BUILD="$ROOT/research/dxmt/build-arm64ec"
+          D3D9="$BUILD/src/d3d9/d3d9.dll"
+          WMT="$BUILD/src/winemetal/winemetal.dll"
+          D3D9_OBJ="$BUILD/src/d3d9/d3d9.dll.p/d3d9.cpp.obj"
+          WMT_OBJ="$BUILD/src/winemetal/winemetal.dll.p/main.c.obj"
+
+          file "$D3D9" "$WMT" "$D3D9_OBJ" "$WMT_OBJ"
+
+          # Final ARM64EC images deliberately advertise IMAGE_FILE_MACHINE_AMD64
+          # (0x8664) so x64 callers can load them.  The input COFF objects carry
+          # IMAGE_FILE_MACHINE_ARM64EC (0xA641).  Check both halves rather than
+          # incorrectly requiring A641 on the final linked PE.
+          python3 - "$D3D9" "$WMT" "$D3D9_OBJ" "$WMT_OBJ" <<'PY'
+          import struct, sys
+
+          def pe_machine(path):
+              d = open(path, "rb").read()
+              if d[:2] != b"MZ":
+                  raise SystemExit(f"{path}: not a PE image")
+              pe = struct.unpack_from("<I", d, 0x3c)[0]
+              if d[pe:pe+4] != b"PE\\0\\0":
+                  raise SystemExit(f"{path}: bad PE signature")
+              return struct.unpack_from("<H", d, pe + 4)[0]
+
+          def coff_machine(path):
+              d = open(path, "rb").read(2)
+              if len(d) != 2:
+                  raise SystemExit(f"{path}: truncated COFF object")
+              return struct.unpack("<H", d)[0]
+
+          for path in sys.argv[1:3]:
+              machine = pe_machine(path)
+              print(f"final {path}: machine=0x{machine:04x}")
+              if machine != 0x8664:
+                  raise SystemExit(f"{path}: expected final ARM64EC/AMD64-compatible machine 0x8664")
+
+          for path in sys.argv[3:]:
+              machine = coff_machine(path)
+              print(f"object {path}: machine=0x{machine:04x}")
+              if machine != 0xA641:
+                  raise SystemExit(f"{path}: expected ARM64EC COFF machine 0xA641")
+          PY
+
           "$TC/arm64ec-w64-mingw32-objdump" -p "$D3D9" > /tmp/d3d9-objdump.txt
           grep -q "Direct3DCreate9" /tmp/d3d9-objdump.txt
-          python3 - "$D3D9" "$WMT" <<'PY'
-          import struct, sys
-          for p in sys.argv[1:]:
-              d = open(p, "rb").read()
-              pe = struct.unpack_from("<I", d, 0x3c)[0]
-              machine = struct.unpack_from("<H", d, pe + 4)[0]
-              print(f"{p}: machine=0x{machine:04x}")
-              if machine != 0xA641:
-                  raise SystemExit(f"{p}: expected IMAGE_FILE_MACHINE_ARM64EC (0xA641)")
-          PY
+
+          # Diagnostic only: current LLVM prints the linked ARM64EC/CHPE load
+          # configuration here.  Keep it in the Actions log without making the
+          # experiment depend on a particular llvm-readobj wording.
+          if [ -x "$TC/llvm-readobj" ]; then
+            "$TC/llvm-readobj" --file-headers --coff-load-config "$D3D9" | tee /tmp/d3d9-readobj.txt || true
+          fi
 
       - name: Build x64 D3D9 acceptance cube
         run: |
