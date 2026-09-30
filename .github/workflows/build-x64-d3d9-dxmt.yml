@@ -135,7 +135,7 @@ jobs:
               if d[:2] != b"MZ":
                   raise SystemExit(f"{path}: not a PE image")
               pe = struct.unpack_from("<I", d, 0x3c)[0]
-              if d[pe:pe+4] != b"PE\\0\\0":
+              if d[pe:pe+4] != b"PE" + bytes(2):
                   raise SystemExit(f"{path}: bad PE signature")
               return struct.unpack_from("<H", d, pe + 4)[0]
 
