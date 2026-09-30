@@ -2,6 +2,12 @@ name: Build x64 DXMT D3D9 experiment
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/build-x64-d3d9-dxmt.yml"
+      - ".github/x64-d3d9-trigger"
   push:
     branches:
       - x64-d3d9-dxmt
