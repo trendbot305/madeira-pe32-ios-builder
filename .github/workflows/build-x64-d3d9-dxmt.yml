@@ -1,0 +1,243 @@
+name: Build x64 DXMT D3D9 experiment
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/build-x64-d3d9-dxmt.yml"
+      - ".github/x64-d3d9-trigger"
+  push:
+    branches:
+      - x64-d3d9-dxmt
+    paths:
+      - ".github/workflows/build-x64-d3d9-dxmt.yml"
+      - ".github/x64-d3d9-trigger"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: madeira-x64-d3d9-dxmt
+  cancel-in-progress: true
+
+env:
+  MADEIRA_SHA: d5a8e0a60804bddf48a9efa751adec52ba9a4bda
+  LLVM_MINGW_VER: "20260421"
+
+jobs:
+  build-d3d9:
+    name: Build ARM64EC DXMT D3D9 + x64 acceptance test
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout builder
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Checkout current Madeira
+        uses: actions/checkout@v4
+        with:
+          repository: willfaust/Madeira
+          ref: ${{ env.MADEIRA_SHA }}
+          path: external/Madeira
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout Wine and DXMT submodules
+        run: |
+          set -euo pipefail
+          git -C external/Madeira submodule update --init --recursive --depth 1 wine research/dxmt
+          git -C external/Madeira rev-parse HEAD
+          git -C external/Madeira/research/dxmt rev-parse HEAD
+          git -C external/Madeira/wine rev-parse HEAD
+
+      - name: Install build tools
+        run: |
+          set -euo pipefail
+          brew list bison >/dev/null 2>&1 || brew install bison
+          brew list meson >/dev/null 2>&1 || brew install meson
+          brew list ninja >/dev/null 2>&1 || brew install ninja
+          echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
+          bison --version | head -1
+          meson --version
+          ninja --version
+
+      - name: Download verified llvm-mingw
+        run: |
+          set -euo pipefail
+          ROOT="$PWD/external/Madeira"
+          TC="$ROOT/toolchains/llvm-mingw-${LLVM_MINGW_VER}-ucrt-macos-universal"
+          if [ ! -x "$TC/bin/arm64ec-w64-mingw32-clang" ]; then
+            mkdir -p "$ROOT/toolchains"
+            ARCHIVE="/tmp/llvm-mingw-${LLVM_MINGW_VER}-ucrt-macos-universal.tar.xz"
+            curl -L --fail --retry 3               "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VER}/llvm-mingw-${LLVM_MINGW_VER}-ucrt-macos-universal.tar.xz"               -o "$ARCHIVE"
+            echo "bd85a3975723815cef28dbbd2ca2cb0c926f6b348a12a0453f39f7af273cb3f7  $ARCHIVE" | shasum -a 256 -c -
+            tar -xJf "$ARCHIVE" -C "$ROOT/toolchains"
+          fi
+          test -x "$TC/bin/arm64ec-w64-mingw32-clang"
+          test -x "$TC/bin/x86_64-w64-mingw32-clang"
+          echo "$TC/bin" >> "$GITHUB_PATH"
+
+      - name: Configure Wine ARM64EC build tree
+        run: |
+          set -euo pipefail
+          export PATH="$(brew --prefix bison)/bin:$PWD/external/Madeira/toolchains/llvm-mingw-${LLVM_MINGW_VER}-ucrt-macos-universal/bin:$PATH"
+          bash external/Madeira/build/wine-pe/build-ntdll.sh
+          test -f external/Madeira/wine/build-arm64ec/config.status
+          test -f external/Madeira/wine/build-arm64ec/dlls/ntdll/arm64ec-windows/ntdll.dll
+
+      - name: Configure DXMT ARM64EC PE build
+        run: |
+          set -euo pipefail
+          ROOT="$PWD/external/Madeira"
+          DXMT="$ROOT/research/dxmt"
+          TC="$ROOT/toolchains/llvm-mingw-${LLVM_MINGW_VER}-ucrt-macos-universal/bin"
+          rm -f "$DXMT/toolchains"
+          ln -s ../../toolchains "$DXMT/toolchains"
+          rm -rf "$DXMT/build-arm64ec"
+          SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"           PATH="$TC:/usr/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"             meson setup "$DXMT/build-arm64ec" "$DXMT"               -Dbuildtype=release               -Dwine_build_path=../../wine/build-arm64ec               --cross-file="$DXMT/build-arm64ec-win.txt"
+
+      - name: Build DXMT d3d9.dll and winemetal.dll
+        run: |
+          set -euo pipefail
+          ROOT="$PWD/external/Madeira"
+          TC="$ROOT/toolchains/llvm-mingw-${LLVM_MINGW_VER}-ucrt-macos-universal/bin"
+          export PATH="$TC:$PATH"
+          ninja -C "$ROOT/research/dxmt/build-arm64ec"             src/winemetal/winemetal.dll             src/d3d9/d3d9.dll
+          test -s "$ROOT/research/dxmt/build-arm64ec/src/winemetal/winemetal.dll"
+          test -s "$ROOT/research/dxmt/build-arm64ec/src/d3d9/d3d9.dll"
+
+      - name: Verify ARM64EC D3D9 frontend
+        run: |
+          set -euo pipefail
+          ROOT="$PWD/external/Madeira"
+          TC="$ROOT/toolchains/llvm-mingw-${LLVM_MINGW_VER}-ucrt-macos-universal/bin"
+          BUILD="$ROOT/research/dxmt/build-arm64ec"
+          D3D9="$BUILD/src/d3d9/d3d9.dll"
+          WMT="$BUILD/src/winemetal/winemetal.dll"
+          D3D9_OBJ="$BUILD/src/d3d9/d3d9.dll.p/d3d9.cpp.obj"
+          WMT_OBJ="$BUILD/src/winemetal/winemetal.dll.p/main.c.obj"
+
+          file "$D3D9" "$WMT" "$D3D9_OBJ" "$WMT_OBJ"
+
+          # Final ARM64EC images deliberately advertise IMAGE_FILE_MACHINE_AMD64
+          # (0x8664) so x64 callers can load them.  The input COFF objects carry
+          # IMAGE_FILE_MACHINE_ARM64EC (0xA641).  Check both halves rather than
+          # incorrectly requiring A641 on the final linked PE.
+          python3 - "$D3D9" "$WMT" "$D3D9_OBJ" "$WMT_OBJ" <<'PY'
+          import struct, sys
+
+          def pe_machine(path):
+              d = open(path, "rb").read()
+              if d[:2] != b"MZ":
+                  raise SystemExit(f"{path}: not a PE image")
+              pe = struct.unpack_from("<I", d, 0x3c)[0]
+              if d[pe:pe+4] != b"PE" + bytes(2):
+                  raise SystemExit(f"{path}: bad PE signature")
+              return struct.unpack_from("<H", d, pe + 4)[0]
+
+          def coff_machine(path):
+              d = open(path, "rb").read(2)
+              if len(d) != 2:
+                  raise SystemExit(f"{path}: truncated COFF object")
+              return struct.unpack("<H", d)[0]
+
+          for path in sys.argv[1:3]:
+              machine = pe_machine(path)
+              print(f"final {path}: machine=0x{machine:04x}")
+              if machine != 0x8664:
+                  raise SystemExit(f"{path}: expected final ARM64EC/AMD64-compatible machine 0x8664")
+
+          for path in sys.argv[3:]:
+              machine = coff_machine(path)
+              print(f"object {path}: machine=0x{machine:04x}")
+              if machine != 0xA641:
+                  raise SystemExit(f"{path}: expected ARM64EC COFF machine 0xA641")
+          PY
+
+          "$TC/arm64ec-w64-mingw32-objdump" -p "$D3D9" > /tmp/d3d9-objdump.txt
+          grep -q "Direct3DCreate9" /tmp/d3d9-objdump.txt
+
+          # Diagnostic only: current LLVM prints the linked ARM64EC/CHPE load
+          # configuration here.  Keep it in the Actions log without making the
+          # experiment depend on a particular llvm-readobj wording.
+          if [ -x "$TC/llvm-readobj" ]; then
+            "$TC/llvm-readobj" --file-headers --coff-load-config "$D3D9" | tee /tmp/d3d9-readobj.txt || true
+          fi
+
+      - name: Build x64 D3D9 acceptance cube
+        run: |
+          set -euo pipefail
+          ROOT="$PWD/external/Madeira"
+          TC="$ROOT/toolchains/llvm-mingw-${LLVM_MINGW_VER}-ucrt-macos-universal/bin"
+          mkdir -p out/x64-d3d9
+          # Give the x64 test its own unmistakable runtime markers.  The prior
+          # artifact reused the i386 source strings, which made a device log
+          # look like the 32-bit test even when the PE itself was x86-64.
+          cp "$ROOT/build/x86-tests/d3d9-cube-x86.c" /tmp/d3d9-cube-x64.c
+          python3 - <<'PY'
+          p = "/tmp/d3d9-cube-x64.c"
+          s = open(p).read()
+          s = s.replace("MADEIRA-D3D9:", "X64-DXMT-TEST:")
+          s = s.replace("32-bit D3D9 cube starting", "x64 DXMT D3D9 cube starting")
+          s = s.replace("MadeiraD3D9CubeX86", "MadeiraD3D9CubeX64")
+          s = s.replace("Madeira D3D9 cube (32-bit)", "Madeira DXMT D3D9 cube (x64)")
+          open(p, "w").write(s)
+          PY
+          "$TC/x86_64-w64-mingw32-clang" -O2 -s -nostdlib -fno-builtin -fno-stack-protector             -Wl,--subsystem,console             -Wl,--entry,start             /tmp/d3d9-cube-x64.c             -lkernel32 -luser32 -ld3d9             -o out/x64-d3d9/d3d9-cube-x64.exe
+          file out/x64-d3d9/d3d9-cube-x64.exe
+          python3 - <<'PY'
+          import struct
+          p="out/x64-d3d9/d3d9-cube-x64.exe"
+          d=open(p,"rb").read()
+          pe=struct.unpack_from("<I",d,0x3c)[0]
+          machine=struct.unpack_from("<H",d,pe+4)[0]
+          print(f"x64 acceptance PE machine=0x{machine:04x}")
+          if machine != 0x8664:
+              raise SystemExit("acceptance test is not x86-64")
+          if b"X64-DXMT-TEST:" not in d:
+              raise SystemExit("x64 runtime marker missing")
+          PY
+          "$TC/x86_64-w64-mingw32-objdump" -p out/x64-d3d9/d3d9-cube-x64.exe > out/x64-d3d9/d3d9-cube-x64-objdump.txt
+          grep -qi "d3d9.dll" out/x64-d3d9/d3d9-cube-x64-objdump.txt
+          grep -q "Direct3DCreate9" out/x64-d3d9/d3d9-cube-x64-objdump.txt
+
+      - name: Collect experiment payload
+        run: |
+          set -euo pipefail
+          ROOT="$PWD/external/Madeira"
+          mkdir -p out/x64-d3d9
+          # Ship the candidate DLLs under the exact Windows names so the
+          # folder is a real drop-in test. WINEDLLOVERRIDES=d3d9=n then forces
+          # Wine to load this d3d9.dll instead of its builtin WineD3D module.
+          cp "$ROOT/research/dxmt/build-arm64ec/src/d3d9/d3d9.dll" out/x64-d3d9/d3d9.dll
+          cp "$ROOT/research/dxmt/build-arm64ec/src/winemetal/winemetal.dll" out/x64-d3d9/winemetal.dll
+          cat > out/x64-d3d9/README.txt <<'EOF'
+          Madeira x64 D3D9 experiment
+          ===========================
+          Madeira commit: d5a8e0a60804bddf48a9efa751adec52ba9a4bda
+
+          d3d9.dll:
+            DXMT's normal Windows D3D9 frontend compiled as ARM64EC. Keep this
+            file beside d3d9-cube-x64.exe and set env.WINEDLLOVERRIDES=d3d9=n.
+
+          winemetal.dll:
+            Matching DXMT ARM64EC winemetal PE side. Keep it in the same folder
+            for this controlled acceptance test.
+
+          d3d9-cube-x64.exe:
+            x86-64 D3D9 acceptance test compiled from Madeira's existing cube test.
+            It imports d3d9.dll and is intended to run through the x64/FEX path.
+          EOF
+          shasum -a 256 out/x64-d3d9/* > out/x64-d3d9/SHA256SUMS
+
+      - name: Upload x64 D3D9 experiment
+        uses: actions/upload-artifact@v4
+        with:
+          name: madeira-x64-d3d9-dxmt
+          path: out/x64-d3d9
+          if-no-files-found: error
+          retention-days: 7
