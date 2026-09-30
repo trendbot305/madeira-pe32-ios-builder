@@ -218,7 +218,7 @@ jobs:
           retention-days: 7
 
   device-ipa:
-    needs: [fex-and-probe, wine-modules]
+    needs: [wine-modules]
     name: Build unsigned iPhone IPA
     runs-on: macos-latest
     steps:
@@ -810,4 +810,4 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-# DISHONORED_X64_TRACE_TRIGGER=1
+# DISHONORED_X64_TRACE_TRIGGER=2
