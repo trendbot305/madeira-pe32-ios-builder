@@ -125,8 +125,11 @@ if [ -x "$WINE_BUILD/tools/widl/widl" ]; then
   WIDL="$WINE_BUILD/tools/widl/widl"
   mkdir -p "$WINE_BUILD/include"
   for hdr in wtypesbase wtypes unknwn objidlbase objidl oaidl propidl oleidl \
-             msxml dxgicommon dxgiformat dxgitype dxgi d3dcommon d3d10 d3d10_1 \
-             dcommon d2d1 d2d1_1 d2d1_2 d2d1_3 dwrite dwrite_1 dwrite_2 dwrite_3; do
+             msxml msxml2 msxml6 servprov urlmon ocidl \
+             dxgicommon dxgiformat dxgitype dxgi dxgi1_2 dxgi1_3 dxgi1_4 dxgi1_5 dxgi1_6 dxgidebug d3dcommon \
+             d3d10 d3d10sdklayers d3d10shader d3d10effect d3d10_1 \
+             dcommon d2d1effects d2d1effects_1 d2d1effects_2 d2d1 d2d1_1 d2d1_2 d2d1_3 d2d1effectauthor \
+             dwrite dwrite_1 dwrite_2 dwrite_3; do
     src="$WINE_SRC/include/$hdr.idl"
     out="$WINE_BUILD/include/$hdr.h"
     if [ -f "$src" ] && [ ! -f "$out" ]; then
