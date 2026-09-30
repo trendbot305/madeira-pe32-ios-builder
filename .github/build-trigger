@@ -18,7 +18,7 @@ run 19: native ntdll + crypto + generated DWrite headers
 run 20: modern bison in ntdll widl stage
 run 21: frontier-first cached native stages
 run 22: d2d headers + dependency cache + deferred prebuilt assets
-run 23: COM header chain + dependency cache + v2 dependency cache
+run 23: propidl + oaidl headers + cached widl reuse
 run 24: propidl + oaidl headers + cached widl reuse
 run 25: direct cached-widl header generation
 run 26: oleidl cached-widl header
@@ -53,3 +53,4 @@ run 67: honor WoW64 zero-bits low-VA window in iOS allocator
 run 68: reduced Mach-O PAGEZERO low-VA experiment
 run 69: restore stock pagezero after v68 launch regression
 run 70: ARM64EC runtime crash diagnostics
+run 71: complete Wine header generation before ntdll build
