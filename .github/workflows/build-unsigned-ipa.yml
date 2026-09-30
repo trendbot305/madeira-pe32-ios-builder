@@ -43,7 +43,7 @@ jobs:
           path: |
             external/Madeira/FEX/build-wow64
             toolchains/llvm-mingw-20260421-ucrt-ubuntu-22.04-x86_64
-          key: fex-wow64-linux-d5a8e0a6-llvmmingw20260421-v1
+          key: fex-wow64-linux-d5a8e0a6-llvmmingw20260421-v2
 
       - name: Install host dependencies
         if: steps.cache-fex-wow64.outputs.cache-hit != 'true'
@@ -123,7 +123,7 @@ jobs:
           path: |
             external/Madeira/FEX/build-wow64
             toolchains/llvm-mingw-20260421-ucrt-ubuntu-22.04-x86_64
-          key: fex-wow64-linux-d5a8e0a6-llvmmingw20260421-v1
+          key: fex-wow64-linux-d5a8e0a6-llvmmingw20260421-v2
 
       - name: Add llvm-mingw to PATH
         run: |
@@ -277,7 +277,7 @@ jobs:
           path: |
             external/Madeira/app/Madeira/libntdll_unix.a
             external/Madeira/build/ntdll-unix/obj
-          key: ntdll-ios-${{ runner.os }}-d5a8e0a6-${{ hashFiles('tools/build_madeira_ntdll_ios.sh') }}
+          key: ntdll-ios-${{ runner.os }}-d5a8e0a6-currentwine-v1-${{ hashFiles('tools/build_madeira_ntdll_ios.sh') }}
 
       - name: Build native Madeira ntdll archive
         if: steps.cache-ntdll.outputs.cache-hit != 'true'
@@ -334,14 +334,14 @@ jobs:
           path: |
             external/Madeira/app/Madeira/libntdll_unix.a
             external/Madeira/build/ntdll-unix/obj
-          key: ntdll-ios-${{ runner.os }}-d5a8e0a6-${{ hashFiles('tools/build_madeira_ntdll_ios.sh') }}
+          key: ntdll-ios-${{ runner.os }}-d5a8e0a6-currentwine-v1-${{ hashFiles('tools/build_madeira_ntdll_ios.sh') }}
 
       - name: Restore native FreeType cache
         id: cache-freetype
         uses: actions/cache/restore@v4
         with:
           path: external/Madeira/build/freetype-ios/build
-          key: freetype-ios-${{ runner.os }}-d5a8e0a6-ft2133-v1
+          key: freetype-ios-${{ runner.os }}-d5a8e0a6-ft2133-v2
 
       - name: Restore native win32u cache
         id: cache-win32u
@@ -351,7 +351,7 @@ jobs:
             external/Madeira/app/Madeira/libwin32u_unix.a
             external/Madeira/build/win32u-unix/obj
             external/Madeira/build/freetype-ios/build
-          key: win32u-ios-${{ runner.os }}-d5a8e0a6-${{ hashFiles('tools/build_madeira_win32u_ios.sh') }}
+          key: win32u-ios-${{ runner.os }}-d5a8e0a6-currentwine-v1-${{ hashFiles('tools/build_madeira_win32u_ios.sh') }}
 
       - name: Build native Madeira win32u archive
         if: steps.cache-win32u.outputs.cache-hit != 'true'
@@ -374,14 +374,14 @@ jobs:
             external/Madeira/app/Madeira/libwin32u_unix.a
             external/Madeira/build/win32u-unix/obj
             external/Madeira/build/freetype-ios/build
-          key: win32u-ios-${{ runner.os }}-d5a8e0a6-${{ hashFiles('tools/build_madeira_win32u_ios.sh') }}
+          key: win32u-ios-${{ runner.os }}-d5a8e0a6-currentwine-v1-${{ hashFiles('tools/build_madeira_win32u_ios.sh') }}
 
       - name: Save native FreeType cache
         if: steps.cache-freetype.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: external/Madeira/build/freetype-ios/build
-          key: freetype-ios-${{ runner.os }}-d5a8e0a6-ft2133-v1
+          key: freetype-ios-${{ runner.os }}-d5a8e0a6-ft2133-v2
 
       - name: Checkout pinned FEX only after ntdll passes
         run: |
@@ -475,7 +475,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: external/Madeira/app/Madeira/libwineserver.a
-          key: wineserver-ios-${{ runner.os }}-d5a8e0a6-${{ hashFiles('tools/build_madeira_wineserver_ios.sh') }}
+          key: wineserver-ios-${{ runner.os }}-d5a8e0a6-currentwine-v1-${{ hashFiles('tools/build_madeira_wineserver_ios.sh') }}
 
       - name: Build native Madeira wineserver archive
         if: steps.cache-wineserver.outputs.cache-hit != 'true'
@@ -493,7 +493,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: external/Madeira/app/Madeira/libwineserver.a
-          key: wineserver-ios-${{ runner.os }}-d5a8e0a6-${{ hashFiles('tools/build_madeira_wineserver_ios.sh') }}
+          key: wineserver-ios-${{ runner.os }}-d5a8e0a6-currentwine-v1-${{ hashFiles('tools/build_madeira_wineserver_ios.sh') }}
 
       - name: Restore LLVM 15 iOS cache
         id: cache-llvm-ios
@@ -528,7 +528,7 @@ jobs:
           path: |
             external/Madeira/build/dxmt-ios
             external/Madeira/app/Madeira/libdxmt_combined.a
-          key: dxmt-ios-madeira-d5a8e0a6-llvm15-ios-v2
+          key: dxmt-ios-madeira-d5a8e0a6-llvm15-ios-v3
 
       - name: Build Madeira DXMT fork for iOS
         if: steps.cache-dxmt.outputs.cache-hit != 'true'
@@ -589,7 +589,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: external/Madeira/app/Madeira/libdxmt_combined.a
-          key: dxmt-ios-madeira-d5a8e0a6-llvm15-ios-v1
+          key: dxmt-ios-madeira-d5a8e0a6-llvm15-ios-v3
 
       - name: Restore Xcode module cache
         id: cache-xcode-modules
